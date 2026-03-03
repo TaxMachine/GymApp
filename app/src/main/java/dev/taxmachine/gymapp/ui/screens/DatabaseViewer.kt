@@ -1,4 +1,4 @@
-package dev.taxmachine.gymapp.ui
+package dev.taxmachine.gymapp.ui.screens
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -17,7 +17,7 @@ import dev.taxmachine.gymapp.db.GymDao
 @Composable
 fun DatabaseViewer(dao: GymDao, onBack: () -> Unit) {
     var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Badges", "Splits", "Exercises", "W. Logs", "Supps", "S. Logs")
+    val tabs = listOf("Badges", "Splits", "Exercises", "W. Logs", "Supps", "S. Logs", "Themes")
 
     Scaffold(
         topBar = {
@@ -49,6 +49,7 @@ fun DatabaseViewer(dao: GymDao, onBack: () -> Unit) {
                 3 -> TableView(dao.getAllWeightLogs().collectAsState(initial = emptyList()).value)
                 4 -> TableView(dao.getAllSupplements().collectAsState(initial = emptyList()).value)
                 5 -> TableView(dao.getAllSupplementLogs().collectAsState(initial = emptyList()).value)
+                6 -> TableView(dao.getAllCustomThemeColors().collectAsState(initial = emptyList()).value)
             }
         }
     }

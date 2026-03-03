@@ -32,9 +32,10 @@ class Converters {
         ExerciseEntity::class,
         WeightLogEntity::class,
         SupplementEntity::class,
-        SupplementLogEntity::class
+        SupplementLogEntity::class,
+        CustomThemeColorsEntity::class
     ],
-    version = 6
+    version = 8
 )
 @TypeConverters(Converters::class)
 abstract class GymDatabase : RoomDatabase() {
@@ -44,48 +45,24 @@ abstract class GymDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: GymDatabase? = null
 
-        private val MIGRATION_4_5 = object : Migration(4, 5) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                // Drop and recreate workout tables to "reset" them while keeping others
-                db.execSQL("DROP TABLE IF EXISTS `weight_logs`")
-                db.execSQL("DROP TABLE IF EXISTS `exercises`")
-                db.execSQL("DROP TABLE IF EXISTS `splits`")
-
-                db.execSQL("CREATE TABLE IF NOT EXISTS `splits` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL)")
-                
-                db.execSQL("""
-                    CREATE TABLE IF NOT EXISTS `exercises` (
-                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
-                        `splitId` INTEGER NOT NULL, 
-                        `name` TEXT NOT NULL, 
-                        `weight` REAL NOT NULL, 
-                        `weightUnit` TEXT NOT NULL, 
-                        `reps` INTEGER NOT NULL, 
-                        FOREIGN KEY(`splitId`) REFERENCES `splits`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE 
-                    )
-                """)
-
-                db.execSQL("""
-                    CREATE TABLE IF NOT EXISTS `weight_logs` (
-                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
-                        `exerciseId` INTEGER NOT NULL, 
-                        `weight` REAL NOT NULL, 
-                        `timestamp` INTEGER NOT NULL, 
-                        FOREIGN KEY(`exerciseId`) REFERENCES `exercises`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE 
-                    )
-                """)
-            }
-        }
-
-        private val MIGRATION_5_6 = object : Migration(5, 6) {
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("""
-                    CREATE TABLE IF NOT EXISTS `supplement_logs` (
-                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
-                        `supplementUid` INTEGER NOT NULL, 
-                        `dosage` REAL NOT NULL, 
-                        `timestamp` INTEGER NOT NULL, 
-                        FOREIGN KEY(`supplementUid`) REFERENCES `supplements`(`uid`) ON UPDATE NO ACTION ON DELETE CASCADE 
+                    CREATE TABLE IF NOT EXISTS `custom_theme_colors` (
+                        `isDark` INTEGER NOT NULL, 
+                        `primary` INTEGER NOT NULL, 
+                        `onPrimary` INTEGER NOT NULL, 
+                        `secondary` INTEGER NOT NULL, 
+                        `onSecondary` INTEGER NOT NULL, 
+                        `tertiary` INTEGER NOT NULL, 
+                        `onTertiary` INTEGER NOT NULL, 
+                        `background` INTEGER NOT NULL, 
+                        `onBackground` INTEGER NOT NULL, 
+                        `surface` INTEGER NOT NULL, 
+                        `onSurface` INTEGER NOT NULL, 
+                        `error` INTEGER NOT NULL, 
+                        `onError` INTEGER NOT NULL, 
+                        PRIMARY KEY(`isDark`)
                     )
                 """)
             }
@@ -98,7 +75,8 @@ abstract class GymDatabase : RoomDatabase() {
                     GymDatabase::class.java,
                     "gym_database"
                 )
-                .addMigrations(MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(MIGRATION_7_8)
+                .fallbackToDestructiveMigrationOnDowngrade()
                 .build()
                 INSTANCE = instance
                 instance

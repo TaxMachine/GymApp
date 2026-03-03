@@ -101,3 +101,20 @@ data class SupplementLogEntity(
     val dosage: Float,
     val timestamp: Long = System.currentTimeMillis()
 )
+
+@Entity(tableName = "custom_theme_colors")
+data class CustomThemeColorsEntity(
+    @PrimaryKey val isDark: Boolean,
+    val primary: Long,
+    val onPrimary: Long,
+    val secondary: Long,
+    val onSecondary: Long,
+    val tertiary: Long,
+    val onTertiary: Long,
+    val background: Long,
+    val onBackground: Long,
+    val surface: Long,
+    val onSurface: Long,
+    val error: Long,
+    val onError: Long
+)

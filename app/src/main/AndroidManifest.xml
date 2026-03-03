@@ -3,6 +3,7 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.NFC" />
+    <uses-permission android:name="android.permission.USE_FINGERPRINT" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
@@ -30,10 +31,12 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Intent filters for NFC tech discovery if needed,
+                 but we'll use Foreground Dispatch in code -->
         </activity>
 
         <service
-            android:name=".NfcEmulationService"
+            android:name=".service.NfcEmulationService"
             android:exported="true"
             android:permission="android.permission.BIND_NFC_SERVICE">
             <intent-filter>
@@ -44,7 +47,13 @@
                 android:resource="@xml/apduservice" />
         </service>
 
-        <receiver android:name=".SupplementReminderReceiver" android:exported="false" />
+        <receiver
+            android:name=".receiver.SupplementReminderReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

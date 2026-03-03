@@ -1,4 +1,4 @@
-package dev.taxmachine.gymapp.ui
+package dev.taxmachine.gymapp.ui.screens
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -14,7 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import dev.taxmachine.gymapp.utils.CalculationUtils
 
 @Composable
 fun PeptideCalculatorScreen() {
@@ -26,18 +26,8 @@ fun PeptideCalculatorScreen() {
     val water = bacWater.toDoubleOrNull() ?: 0.0
     val dose = desiredDose.toDoubleOrNull() ?: 0.0
 
-    val resultUnits = if (mass > 0 && water > 0 && dose > 0) {
-        val concentrationMcgPerMl = (mass * 1000) / water
-        (dose / concentrationMcgPerMl) * 100 // 100 units per ml
-    } else {
-        0.0
-    }
-
-    val totalDoses = if (mass > 0 && dose > 0) {
-        (mass * 1000) / dose
-    } else {
-        0.0
-    }
+    val resultUnits = CalculationUtils.calculatePeptideDose(mass, water, dose)
+    val totalDoses = CalculationUtils.calculateTotalDoses(mass, dose)
 
     Column(
         modifier = Modifier

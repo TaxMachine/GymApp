@@ -72,4 +72,17 @@ interface GymDao {
 
     @Insert
     suspend fun insertSupplementLog(log: SupplementLogEntity)
+
+    // Custom Theme Colors
+    @Query("SELECT * FROM custom_theme_colors WHERE isDark = :isDark")
+    fun getCustomThemeColors(isDark: Boolean): Flow<CustomThemeColorsEntity?>
+
+    @Query("SELECT * FROM custom_theme_colors")
+    fun getAllCustomThemeColors(): Flow<List<CustomThemeColorsEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertCustomThemeColors(colors: CustomThemeColorsEntity)
+
+    @Query("DELETE FROM custom_theme_colors")
+    suspend fun deleteAllCustomThemeColors()
 }
