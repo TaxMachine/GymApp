@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">GymApp</string>
+    <string name="servicedesc">Gym Pass Emulation Service</string>
+    <string name="aiddescription">Gym Pass AID</string>
+</resources>
