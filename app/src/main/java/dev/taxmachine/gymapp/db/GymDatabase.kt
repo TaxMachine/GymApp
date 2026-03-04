@@ -28,6 +28,7 @@ class Converters {
 @Database(
     entities = [
         BadgeEntity::class,
+        BadgeHistoryEntity::class,
         SplitEntity::class,
         ExerciseEntity::class,
         WeightLogEntity::class,
@@ -35,7 +36,7 @@ class Converters {
         SupplementLogEntity::class,
         CustomThemeColorsEntity::class
     ],
-    version = 8
+    version = 13
 )
 @TypeConverters(Converters::class)
 abstract class GymDatabase : RoomDatabase() {
@@ -68,6 +69,40 @@ abstract class GymDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `badge_history` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
+                        `badgeId` TEXT NOT NULL, 
+                        `oldData` TEXT NOT NULL, 
+                        `newData` TEXT NOT NULL, 
+                        `timestamp` INTEGER NOT NULL, 
+                        FOREIGN KEY(`badgeId`) REFERENCES `badges`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE 
+                    )
+                """)
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_badge_history_badgeId` ON `badge_history` (`badgeId`)")
+            }
+        }
+
+        private val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `supplements` ADD COLUMN `isActive` INTEGER NOT NULL DEFAULT 1")
+            }
+        }
+
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `exercises` ADD COLUMN `isBodyweight` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        private val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `weight_logs` ADD COLUMN `reps` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun getDatabase(context: Context): GymDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -75,8 +110,8 @@ abstract class GymDatabase : RoomDatabase() {
                     GymDatabase::class.java,
                     "gym_database"
                 )
-                .addMigrations(MIGRATION_7_8)
-                .fallbackToDestructiveMigrationOnDowngrade()
+                .addMigrations(MIGRATION_7_8, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
+                .fallbackToDestructiveMigration(dropAllTables = true)
                 .build()
                 INSTANCE = instance
                 instance

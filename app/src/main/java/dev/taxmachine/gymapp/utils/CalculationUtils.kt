@@ -13,6 +13,14 @@ object CalculationUtils {
         return weight * (1f + reps / 30f)
     }
 
+    fun kgToLbs(kg: Float): Float = kg * 2.20462f
+    fun lbsToKg(lbs: Float): Float = lbs / 2.20462f
+
+    fun convertWeight(weight: Float, fromUnit: String, toUnit: String): Float {
+        if (fromUnit == toUnit) return weight
+        return if (fromUnit == "kg") kgToLbs(weight) else lbsToKg(weight)
+    }
+
     fun calculatePeptideDose(massMg: Double, waterMl: Double, desiredDoseMcg: Double): Double {
         if (massMg <= 0 || waterMl <= 0 || desiredDoseMcg <= 0) return 0.0
         val concentrationMcgPerMl = (massMg * 1000) / waterMl

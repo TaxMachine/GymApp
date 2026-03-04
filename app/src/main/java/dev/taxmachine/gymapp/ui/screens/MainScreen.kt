@@ -8,6 +8,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import dev.taxmachine.gymapp.db.*
 import dev.taxmachine.gymapp.ui.theme.AppTheme
 import dev.taxmachine.gymapp.ui.dialogs.*
@@ -36,7 +37,6 @@ fun MainScreen(
 
     var selectedTab by remember { mutableIntStateOf(0) }
     
-    // Optimization: Collect state using remembered flows
     val badges by remember(dao) { dao.getAllBadges() }.collectAsState(initial = emptyList())
     val supplements by remember(dao) { dao.getAllSupplements() }.collectAsState(initial = emptyList())
     
@@ -44,6 +44,8 @@ fun MainScreen(
     var selectedBadgeForDetails by remember { mutableStateOf<BadgeEntity?>(null) }
     var emulatingBadgeId by remember { mutableStateOf<String?>(null) }
     var showAddSupplementDialog by remember { mutableStateOf(false) }
+
+    val updateEvent by NfcEmulationService.updateEvent.collectAsState()
 
     LaunchedEffect(isScanning) {
         if (isScanning) {
@@ -59,23 +61,33 @@ fun MainScreen(
         }
     }
 
-    if (showNamingDialog) {
+    if (isScanning) {
+        NfcScanningDialog(onDismiss = { onScanningChange(false) })
+    }
+
+    if (showNamingDialog && scannedTag != null) {
         BadgeNamingDialog(
+            tag = scannedTag,
+            scannedData = scannedData ?: scannedTag.id.joinToString("") { "%02x".format(it) },
             onDismiss = {
                 showNamingDialog = false
                 onScannedTagChange(null)
                 onScannedDataChange(null)
             },
-            onSave = { badgeName ->
-                if (scannedTag != null) {
-                    val id = scannedTag.id.joinToString("") { "%02x".format(it) }
-                    scope.launch {
-                        val dataHex = scannedData ?: scannedTag.id.joinToString("") { "%02x".format(it) }
-                        dao.insertBadge(BadgeEntity(id, badgeName, dataHex))
-                        onScannedTagChange(null)
-                        onScannedDataChange(null)
-                        showNamingDialog = false
-                    }
+            onSave = { name, protocol, techList ->
+                scope.launch {
+                    val uid = scannedTag.id.joinToString("") { "%02x".format(it) }
+                    val dataHex = scannedData ?: uid
+                    dao.insertBadge(BadgeEntity(
+                        id = uid,
+                        name = name,
+                        tagData = dataHex,
+                        protocol = protocol,
+                        techList = techList
+                    ))
+                    onScannedTagChange(null)
+                    onScannedDataChange(null)
+                    showNamingDialog = false
                 }
             }
         )
@@ -95,6 +107,30 @@ fun MainScreen(
                 scope.launch {
                     dao.insertSupplement(supplement)
                     showAddSupplementDialog = false
+                }
+            }
+        )
+    }
+
+    if (updateEvent != null) {
+        AlertDialog(
+            onDismissRequest = { NfcEmulationService.clearUpdateEvent() },
+            title = { Text("Badge Updated: ${updateEvent!!.badgeName}") },
+            text = { 
+                Column {
+                    Text("The reader has updated your badge data.")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("New Code:", style = MaterialTheme.typography.labelMedium)
+                    Text(
+                        updateEvent!!.newCode,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = { NfcEmulationService.clearUpdateEvent() }) {
+                    Text("OK")
                 }
             }
         )
@@ -156,9 +192,11 @@ fun MainScreen(
                             if (emulatingBadgeId == badge.id) {
                                 emulatingBadgeId = null
                                 NfcEmulationService.activeTagData = null
+                                NfcEmulationService.currentBadgeId = null
                             } else {
                                 emulatingBadgeId = badge.id
                                 NfcEmulationService.activeTagData = badge.tagData
+                                NfcEmulationService.currentBadgeId = badge.id
                             }
                         }
                     }
@@ -166,8 +204,6 @@ fun MainScreen(
                     
                     BadgeScreen(
                         badges = badges,
-                        isScanning = isScanning,
-                        onScanningChange = onScanningChange,
                         onBadgeClick = onBadgeClick,
                         onEmulateClick = onEmulateClick,
                         onDeleteBadge = onDeleteBadge,
@@ -177,6 +213,7 @@ fun MainScreen(
                 1 -> WorkoutSplitScreen(dao)
                 2 -> {
                     val onDeleteSupp = remember(dao) { { s: SupplementEntity -> scope.launch { dao.deleteSupplement(s) } ; Unit } }
+                    val onToggleActive = remember(dao) { { s: SupplementEntity -> scope.launch { dao.updateSupplement(s.copy(isActive = !s.isActive)) } ; Unit } }
                     val onUpdateDosage = remember(dao) {
                         { s: SupplementEntity, dose: Float ->
                             scope.launch {
@@ -198,6 +235,7 @@ fun MainScreen(
                         dao = dao,
                         supplements = supplements,
                         onDelete = onDeleteSupp,
+                        onToggleActive = onToggleActive,
                         onUpdateDosage = onUpdateDosage,
                         onOverrideDosage = onOverrideDosage
                     )

@@ -1,124 +1,183 @@
 package dev.taxmachine.gymapp.service
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.Context
 import android.nfc.cardemulation.HostApduService
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import androidx.core.app.NotificationCompat
+import dev.taxmachine.gymapp.db.BadgeHistoryEntity
+import dev.taxmachine.gymapp.db.GymDatabase
 import dev.taxmachine.gymapp.utils.NfcUtils
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+
+data class BadgeUpdateEvent(val badgeName: String, val newCode: String)
 
 /**
  * NfcEmulationService handles Host Card Emulation (HCE).
- * 
- * Note on ISO 15693 (NFC-V): 
- * Android HCE officially supports only ISO 14443-4 (ISO-DEP). 
- * True hardware-level spoofing of ISO 15693 is usually not possible on standard Android 
- * because the NFC controller handles the low-level protocol before it reaches this service.
- * 
- * However, many modern gym readers are multi-protocol and might attempt to use 
- * proprietary tunneling or simply check for ISO 7816-4 APDUs that mimic the 
- * ISO 15693 command set if they detect a phone.
  */
 class NfcEmulationService : HostApduService() {
+
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun processCommandApdu(commandApdu: ByteArray?, extras: Bundle?): ByteArray {
         if (commandApdu == null) return STATUS_FAILED
 
-        val hexCommand = commandApdu.joinToString("") { "%02x".format(it) }
-        Log.d("NfcEmulationService", "Command received: $hexCommand")
+        val hexCommand = NfcUtils.bytesToHex(commandApdu)
+        Log.d(TAG, "Command received: $hexCommand")
 
-        // 1. Handle SELECT AID (Standard HCE entry point)
-        // If the reader supports ISO 14443-4, it will send this first.
-        if (hexCommand.startsWith("00a40400")) {
-            Log.d("NfcEmulationService", "SELECT AID detected.")
+        if (hexCommand.startsWith(SELECT_AID_HEADER)) {
+            Log.d(TAG, "SELECT AID detected.")
             return STATUS_SUCCESS
         }
 
+        val activeBadgeId = currentBadgeId ?: return STATUS_FAILED
         val activeTagHex = activeTagData ?: return STATUS_FAILED
         val tagBytes = NfcUtils.hexToBytes(activeTagHex)
 
-        // 2. Handle Mifare / NTAG commands (e.g., 0x30 READ)
-        if (commandApdu.size >= 2 && commandApdu[0] == 0x30.toByte()) {
+        // 1. Mifare / NTAG WRITE (Command 0xA2)
+        if (commandApdu.size >= 6 && commandApdu[0] == CMD_MIFARE_WRITE) {
             val pageOffset = commandApdu[1].toInt() and 0xFF
-            val byteOffset = pageOffset * 4
+            val byteOffset = pageOffset * MIFARE_PAGE_SIZE
+            val newData = commandApdu.copyOfRange(2, 6)
             
+            Log.d(TAG, "Mifare WRITE page $pageOffset: ${NfcUtils.bytesToHex(newData)}")
+            
+            if (byteOffset + MIFARE_PAGE_SIZE <= tagBytes.size) {
+                val updatedBytes = tagBytes.copyOf()
+                System.arraycopy(newData, 0, updatedBytes, byteOffset, MIFARE_PAGE_SIZE)
+                updateBadgeData(activeBadgeId, activeTagHex, NfcUtils.bytesToHex(updatedBytes))
+                return STATUS_SUCCESS
+            }
+        }
+
+        // 2. Mifare / NTAG READ (Command 0x30)
+        if (commandApdu.size >= 2 && commandApdu[0] == CMD_MIFARE_READ) {
+            val pageOffset = commandApdu[1].toInt() and 0xFF
+            val byteOffset = pageOffset * MIFARE_PAGE_SIZE
             if (byteOffset < tagBytes.size) {
-                val responseSize = minOf(16, tagBytes.size - byteOffset)
+                val responseSize = minOf(MIFARE_READ_RESPONSE_SIZE, tagBytes.size - byteOffset)
                 val response = tagBytes.copyOfRange(byteOffset, byteOffset + responseSize)
-                Log.d("NfcEmulationService", "Mifare READ page $pageOffset")
                 return response + STATUS_SUCCESS
             }
         }
 
-        // 3. Handle ISO 15693 (NFC-V) commands
-        // ISO 15693 response format: [Response Flags] [Data] [Optional SW1 SW2]
+        // 3. ISO 15693 (NFC-V) commands
         if (commandApdu.size >= 2) {
             val command = commandApdu[1].toInt() and 0xFF
-            
             when (command) {
-                0x01 -> { // Inventory
-                    Log.d("NfcEmulationService", "ISO 15693 INVENTORY")
-                    // Response: [Flags] [DSFID] [UID (8 bytes)]
-                    val uid = if (tagBytes.size >= 8) tagBytes.take(8).toByteArray() else ByteArray(8)
+                CMD_ISO15693_INVENTORY -> {
+                    val uid = if (tagBytes.size >= ISO15693_UID_SIZE) {
+                        tagBytes.take(ISO15693_UID_SIZE).toByteArray()
+                    } else {
+                        ByteArray(ISO15693_UID_SIZE)
+                    }
                     return byteArrayOf(0x00, 0x00, *uid) + STATUS_SUCCESS
                 }
-                0x20 -> { // Read Single Block
+                CMD_ISO15693_WRITE_SINGLE_BLOCK -> {
                     val blockNumber = if (commandApdu.size >= 3) commandApdu[2].toInt() and 0xFF else 0
-                    val offset = blockNumber * 4
-                    if (offset < tagBytes.size) {
-                        val responseSize = minOf(4, tagBytes.size - offset)
-                        val data = tagBytes.copyOfRange(offset, offset + responseSize)
-                        Log.d("NfcEmulationService", "ISO 15693 READ BLOCK: $blockNumber")
-                        return byteArrayOf(0x00) + data + STATUS_SUCCESS
+                    val offset = blockNumber * ISO15693_BLOCK_SIZE
+                    if (commandApdu.size >= 7 && offset + ISO15693_BLOCK_SIZE <= tagBytes.size) {
+                        val newData = commandApdu.copyOfRange(3, 7)
+                        val updatedBytes = tagBytes.copyOf()
+                        System.arraycopy(newData, 0, updatedBytes, offset, ISO15693_BLOCK_SIZE)
+                        updateBadgeData(activeBadgeId, activeTagHex, NfcUtils.bytesToHex(updatedBytes))
+                        return byteArrayOf(0x00) + STATUS_SUCCESS
                     }
                 }
-                0x23 -> { // Read Multiple Blocks
-                    val firstBlock = if (commandApdu.size >= 3) commandApdu[2].toInt() and 0xFF else 0
-                    val numBlocks = if (commandApdu.size >= 4) (commandApdu[3].toInt() and 0xFF) + 1 else 1
-                    val offset = firstBlock * 4
-                    val totalSize = numBlocks * 4
+                CMD_ISO15693_READ_SINGLE_BLOCK -> {
+                    val blockNumber = if (commandApdu.size >= 3) commandApdu[2].toInt() and 0xFF else 0
+                    val offset = blockNumber * ISO15693_BLOCK_SIZE
                     if (offset < tagBytes.size) {
-                        val responseSize = minOf(totalSize, tagBytes.size - offset)
-                        val data = tagBytes.copyOfRange(offset, offset + responseSize)
-                        Log.d("NfcEmulationService", "ISO 15693 READ MULTI: $firstBlock ($numBlocks)")
+                        val data = tagBytes.copyOfRange(offset, minOf(offset + ISO15693_BLOCK_SIZE, tagBytes.size))
                         return byteArrayOf(0x00) + data + STATUS_SUCCESS
                     }
-                }
-                0x2B -> { // Get System Information
-                    Log.d("NfcEmulationService", "ISO 15693 GET INFO")
-                    val uid = if (tagBytes.size >= 8) tagBytes.take(8).toByteArray() else ByteArray(8)
-                    val info = byteArrayOf(
-                        0x00, // Response Flags
-                        0x0F, // Info flags: UID, DSFID, AFI, Memory present
-                        *uid,
-                        0x00, // DSFID
-                        0x00, // AFI
-                        0x3F, // 64 blocks
-                        0x03, // 4 bytes per block
-                        0x01  // IC Reference
-                    )
-                    return info + STATUS_SUCCESS
                 }
             }
-        }
-
-        // 4. HID iCLASS tunneling (common for gym badges)
-        // Some readers use specific command headers like 0xFF
-        if (commandApdu[0] == 0xFF.toByte()) {
-            Log.d("NfcEmulationService", "Possible HID iCLASS / Tunneling detected")
-            // This is complex and usually requires specific keys/handshakes
-            // Returning STATUS_SUCCESS may allow the reader to continue probing
-            return STATUS_SUCCESS
         }
 
         return STATUS_SUCCESS
     }
 
+    private fun updateBadgeData(badgeId: String, oldHex: String, newHex: String) {
+        activeTagData = newHex // Update in-memory cache
+        serviceScope.launch {
+            val db = GymDatabase.getDatabase(applicationContext)
+            val dao = db.gymDao()
+            val badge = dao.getBadgeById(badgeId)
+            if (badge != null) {
+                dao.updateBadge(badge.copy(tagData = newHex))
+                dao.insertBadgeHistory(BadgeHistoryEntity(badgeId = badgeId, oldData = oldHex, newData = newHex))
+                Log.d(TAG, "Badge $badgeId updated and history logged.")
+                _updateEvent.value = BadgeUpdateEvent(badge.name, newHex)
+                sendBadgeUpdateNotification(badge.name)
+            }
+        }
+    }
+
+    private fun sendBadgeUpdateNotification(badgeName: String) {
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val channelId = "badge_updates"
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(channelId, "Badge Updates", NotificationManager.IMPORTANCE_HIGH)
+            channel.description = "Notifications when a badge receives a remote update"
+            notificationManager.createNotificationChannel(channel)
+        }
+
+        val notification = NotificationCompat.Builder(this, channelId)
+            .setSmallIcon(android.R.drawable.stat_notify_sync)
+            .setContentTitle("Badge Updated")
+            .setContentText("Badge '$badgeName' has been updated by the reader.")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .build()
+        
+        notificationManager.notify(badgeName.hashCode(), notification)
+    }
+
     override fun onDeactivated(reason: Int) {
-        Log.d("NfcEmulationService", "Deactivated: $reason")
+        Log.d(TAG, "Deactivated: $reason")
     }
 
     companion object {
+        private const val TAG = "NfcEmulationService"
+        
+        var currentBadgeId: String? = null
         var activeTagData: String? = null
+
+        private val _updateEvent = MutableStateFlow<BadgeUpdateEvent?>(null)
+        val updateEvent = _updateEvent.asStateFlow()
+
+        fun clearUpdateEvent() {
+            _updateEvent.value = null
+        }
+
+        // APDU Status Codes
         private val STATUS_SUCCESS = byteArrayOf(0x90.toByte(), 0x00.toByte())
         private val STATUS_FAILED = byteArrayOf(0x6F.toByte(), 0x00.toByte())
+
+        // Command Headers
+        private const val SELECT_AID_HEADER = "00a40400"
+
+        // Mifare / NTAG Commands & Constants
+        private const val CMD_MIFARE_READ = 0x30.toByte()
+        private const val CMD_MIFARE_WRITE = 0xA2.toByte()
+        private const val MIFARE_PAGE_SIZE = 4
+        private const val MIFARE_READ_RESPONSE_SIZE = 16
+
+        // ISO 15693 Commands & Constants
+        private const val CMD_ISO15693_INVENTORY = 0x01
+        private const val CMD_ISO15693_READ_SINGLE_BLOCK = 0x20
+        private const val CMD_ISO15693_WRITE_SINGLE_BLOCK = 0x21
+        private const val ISO15693_BLOCK_SIZE = 4
+        private const val ISO15693_UID_SIZE = 8
     }
 }

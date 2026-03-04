@@ -2,13 +2,36 @@ package dev.taxmachine.gymapp.db
 
 import androidx.room.Entity
 import androidx.room.ForeignKey
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 @Entity(tableName = "badges")
 data class BadgeEntity(
     @PrimaryKey val id: String,
     val name: String,
-    val tagData: String
+    val tagData: String,
+    val protocol: String = "Unknown",
+    val techList: String = ""
+)
+
+@Entity(
+    tableName = "badge_history",
+    foreignKeys = [
+        ForeignKey(
+            entity = BadgeEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["badgeId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("badgeId")]
+)
+data class BadgeHistoryEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val badgeId: String,
+    val oldData: String,
+    val newData: String,
+    val timestamp: Long = System.currentTimeMillis()
 )
 
 @Entity(tableName = "splits")
@@ -34,7 +57,8 @@ data class ExerciseEntity(
     val name: String,
     val weight: Float,
     val weightUnit: String,
-    val reps: Int
+    val reps: Int,
+    val isBodyweight: Boolean = false
 )
 
 @Entity(
@@ -52,6 +76,7 @@ data class WeightLogEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val exerciseId: Long,
     val weight: Float,
+    val reps: Int = 0,
     val timestamp: Long = System.currentTimeMillis()
 )
 
@@ -81,7 +106,8 @@ data class SupplementEntity(
     val unit: DosingUnit,
     val timing: AdministrationTiming,
     val frequency: AdministrationFrequency,
-    val isInjectable: Boolean
+    val isInjectable: Boolean,
+    val isActive: Boolean = true
 )
 
 @Entity(

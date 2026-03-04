@@ -11,11 +11,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.taxmachine.gymapp.db.*
+import dev.taxmachine.gymapp.ui.components.AppDropdownMenu
 import dev.taxmachine.gymapp.ui.components.GraphPoint
 import dev.taxmachine.gymapp.ui.components.LineGraph
 import dev.taxmachine.gymapp.utils.CalculationUtils
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SupplementAddDialog(onDismiss: () -> Unit, onSave: (SupplementEntity) -> Unit) {
     var name by remember { mutableStateOf("") }
@@ -35,32 +35,33 @@ fun SupplementAddDialog(onDismiss: () -> Unit, onSave: (SupplementEntity) -> Uni
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(value = dosage, onValueChange = { dosage = it }, label = { Text("Dosage") }, modifier = Modifier.weight(1f))
                     Spacer(modifier = Modifier.width(8.dp))
-                    var unitExpanded by remember { mutableStateOf(false) }
-                    ExposedDropdownMenuBox(expanded = unitExpanded, onExpandedChange = { unitExpanded = !unitExpanded }, modifier = Modifier.width(100.dp)) {
-                        OutlinedTextField(value = unit.label, onValueChange = {}, readOnly = true, label = { Text("Unit") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = unitExpanded) }, modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable))
-                        ExposedDropdownMenu(expanded = unitExpanded, onDismissRequest = { unitExpanded = false }) {
-                            DosingUnit.entries.forEach { u -> DropdownMenuItem(text = { Text(u.label) }, onClick = { unit = u; unitExpanded = false }) }
-                        }
-                    }
+                    AppDropdownMenu(
+                        label = "Unit",
+                        options = DosingUnit.entries,
+                        selectedOption = unit,
+                        onOptionSelected = { unit = it },
+                        optionLabel = { it.label },
+                        modifier = Modifier.width(100.dp)
+                    )
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 
-                var timingExpanded by remember { mutableStateOf(false) }
-                ExposedDropdownMenuBox(expanded = timingExpanded, onExpandedChange = { timingExpanded = !timingExpanded }) {
-                    OutlinedTextField(value = timing.label, onValueChange = {}, readOnly = true, label = { Text("Timing") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = timingExpanded) }, modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable))
-                    ExposedDropdownMenu(expanded = timingExpanded, onDismissRequest = { timingExpanded = false }) {
-                        AdministrationTiming.entries.forEach { t -> DropdownMenuItem(text = { Text(t.label) }, onClick = { timing = t; timingExpanded = false }) }
-                    }
-                }
+                AppDropdownMenu(
+                    label = "Timing",
+                    options = AdministrationTiming.entries,
+                    selectedOption = timing,
+                    onOptionSelected = { timing = it },
+                    optionLabel = { it.label }
+                )
                 Spacer(modifier = Modifier.height(8.dp))
 
-                var freqExpanded by remember { mutableStateOf(false) }
-                ExposedDropdownMenuBox(expanded = freqExpanded, onExpandedChange = { freqExpanded = !freqExpanded }) {
-                    OutlinedTextField(value = frequency.label, onValueChange = {}, readOnly = true, label = { Text("Frequency") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = freqExpanded) }, modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable))
-                    ExposedDropdownMenu(expanded = freqExpanded, onDismissRequest = { freqExpanded = false }) {
-                        AdministrationFrequency.entries.forEach { f -> DropdownMenuItem(text = { Text(f.label) }, onClick = { frequency = f; freqExpanded = false }) }
-                    }
-                }
+                AppDropdownMenu(
+                    label = "Frequency",
+                    options = AdministrationFrequency.entries,
+                    selectedOption = frequency,
+                    onOptionSelected = { frequency = it },
+                    optionLabel = { it.label }
+                )
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked = isInjectable, onCheckedChange = { isInjectable = it })

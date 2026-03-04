@@ -22,6 +22,7 @@ import dev.taxmachine.gymapp.ui.dialogs.ExerciseProgressionDialog
 import dev.taxmachine.gymapp.ui.dialogs.LogWeightDialog
 import dev.taxmachine.gymapp.utils.CalculationUtils
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 @Composable
 fun WorkoutSplitScreen(dao: GymDao) {
@@ -133,7 +134,7 @@ fun ExerciseListScreen(dao: GymDao, split: SplitEntity, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     var showAddExerciseDialog by remember { mutableStateOf(false) }
     var exerciseToShowGraph by remember { mutableStateOf<ExerciseEntity?>(null) }
-    var exerciseToLogWeight by remember { mutableStateOf<ExerciseEntity?>(null) }
+    var exerciseToLogProgress by remember { mutableStateOf<ExerciseEntity?>(null) }
     var exerciseToOverride by remember { mutableStateOf<ExerciseEntity?>(null) }
 
     Scaffold(
@@ -161,9 +162,9 @@ fun ExerciseListScreen(dao: GymDao, split: SplitEntity, onBack: () -> Unit) {
                     Text("No exercises in this split.")
                 }
             } else {
-                val onLogWeight = remember { { ex: ExerciseEntity -> exerciseToLogWeight = ex } }
-                val onOverride = remember { { ex: ExerciseEntity -> exerciseToOverride = ex } }
-                val onShowGraph = remember { { ex: ExerciseEntity -> exerciseToShowGraph = ex } }
+                val onLogProgressSetter = remember { { ex: ExerciseEntity -> exerciseToLogProgress = ex } }
+                val onOverrideSetter = remember { { ex: ExerciseEntity -> exerciseToOverride = ex } }
+                val onShowGraphSetter = remember { { ex: ExerciseEntity -> exerciseToShowGraph = ex } }
                 val onDelete = remember(dao) { { ex: ExerciseEntity -> scope.launch { dao.deleteExercise(ex) }; Unit } }
 
                 LazyColumn(
@@ -178,9 +179,9 @@ fun ExerciseListScreen(dao: GymDao, split: SplitEntity, onBack: () -> Unit) {
                     ) { exercise ->
                         ExerciseItem(
                             exercise = exercise,
-                            onLogWeight = onLogWeight,
-                            onOverride = onOverride,
-                            onShowGraph = onShowGraph,
+                            onLogProgress = onLogProgressSetter,
+                            onOverride = onOverrideSetter,
+                            onShowGraph = onShowGraphSetter,
                             onDelete = onDelete
                         )
                     }
@@ -192,7 +193,7 @@ fun ExerciseListScreen(dao: GymDao, split: SplitEntity, onBack: () -> Unit) {
     if (showAddExerciseDialog) {
         AddExerciseDialog(
             onDismiss = { showAddExerciseDialog = false },
-            onSave = { name, weight, unit, reps ->
+            onSave = { name, weight, unit, reps, isBodyweight ->
                 scope.launch {
                     val exerciseId = dao.insertExercise(
                         ExerciseEntity(
@@ -200,25 +201,27 @@ fun ExerciseListScreen(dao: GymDao, split: SplitEntity, onBack: () -> Unit) {
                             name = name,
                             weight = weight,
                             weightUnit = unit,
-                            reps = reps
+                            reps = reps,
+                            isBodyweight = isBodyweight
                         )
                     )
-                    dao.insertWeightLog(WeightLogEntity(exerciseId = exerciseId, weight = weight))
+                    dao.insertWeightLog(WeightLogEntity(exerciseId = exerciseId, weight = weight, reps = reps))
                     showAddExerciseDialog = false
                 }
             }
         )
     }
 
-    if (exerciseToLogWeight != null) {
+    if (exerciseToLogProgress != null) {
+        val currentEx = exerciseToLogProgress!!
         LogWeightDialog(
-            exercise = exerciseToLogWeight!!,
-            onDismiss = { exerciseToLogWeight = null },
-            onLog = { weight ->
+            exercise = currentEx,
+            onDismiss = { exerciseToLogProgress = null },
+            onLog = { weight: Float, reps: Int ->
                 scope.launch {
-                    dao.insertWeightLog(WeightLogEntity(exerciseId = exerciseToLogWeight!!.id, weight = weight))
-                    dao.updateExercise(exerciseToLogWeight!!.copy(weight = weight))
-                    exerciseToLogWeight = null
+                    dao.insertWeightLog(WeightLogEntity(exerciseId = currentEx.id, weight = weight, reps = reps))
+                    dao.updateExercise(currentEx.copy(weight = weight, reps = reps))
+                    exerciseToLogProgress = null
                 }
             }
         )
@@ -228,18 +231,55 @@ fun ExerciseListScreen(dao: GymDao, split: SplitEntity, onBack: () -> Unit) {
         val ex = exerciseToOverride!!
         var newWeight by remember(ex) { mutableStateOf(ex.weight.toString()) }
         var newReps by remember(ex) { mutableStateOf(ex.reps.toString()) }
+        var selectedUnit by remember(ex) { mutableStateOf(ex.weightUnit) }
+        val units = listOf("kg", "lbs")
+
         AlertDialog(
             onDismissRequest = { exerciseToOverride = null },
             title = { Text("Override ${ex.name}") },
             text = {
                 Column {
-                    OutlinedTextField(
-                        value = newWeight,
-                        onValueChange = { newWeight = it },
-                        label = { Text("Weight (${ex.weightUnit})") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    if (!ex.isBodyweight) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedTextField(
+                                value = newWeight,
+                                onValueChange = { newWeight = it },
+                                label = { Text("Weight") },
+                                modifier = Modifier.weight(1f)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            var unitExpanded by remember { mutableStateOf(false) }
+                            ExposedDropdownMenuBox(
+                                expanded = unitExpanded,
+                                onExpandedChange = { unitExpanded = !unitExpanded },
+                                modifier = Modifier.width(100.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = selectedUnit,
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text("Unit") },
+                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = unitExpanded) },
+                                    modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                                )
+                                ExposedDropdownMenu(
+                                    expanded = unitExpanded,
+                                    onDismissRequest = { unitExpanded = false }
+                                ) {
+                                    units.forEach { u ->
+                                        DropdownMenuItem(
+                                            text = { Text(u) },
+                                            onClick = {
+                                                selectedUnit = u
+                                                unitExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
                     OutlinedTextField(
                         value = newReps,
                         onValueChange = { newReps = it },
@@ -250,7 +290,10 @@ fun ExerciseListScreen(dao: GymDao, split: SplitEntity, onBack: () -> Unit) {
             },
             confirmButton = {
                 Button(onClick = {
-                    val w = newWeight.toFloatOrNull() ?: 0f
+                    var w = newWeight.toFloatOrNull() ?: 0f
+                    if (!ex.isBodyweight && selectedUnit != ex.weightUnit) {
+                        w = CalculationUtils.convertWeight(w, selectedUnit, ex.weightUnit)
+                    }
                     val r = newReps.toIntOrNull() ?: 0
                     scope.launch {
                         dao.updateExercise(ex.copy(weight = w, reps = r))
@@ -265,10 +308,10 @@ fun ExerciseListScreen(dao: GymDao, split: SplitEntity, onBack: () -> Unit) {
     }
 
     if (exerciseToShowGraph != null) {
-        val exerciseId = exerciseToShowGraph!!.id
-        val logs by remember(dao, exerciseId) { dao.getWeightLogsForExercise(exerciseId) }.collectAsState(initial = emptyList())
+        val currentEx = exerciseToShowGraph!!
+        val logs by remember(dao, currentEx.id) { dao.getWeightLogsForExercise(currentEx.id) }.collectAsState(initial = emptyList())
         ExerciseProgressionDialog(
-            exercise = exerciseToShowGraph!!,
+            exercise = currentEx,
             logs = logs,
             onDismiss = { exerciseToShowGraph = null }
         )
@@ -278,17 +321,26 @@ fun ExerciseListScreen(dao: GymDao, split: SplitEntity, onBack: () -> Unit) {
 @Composable
 fun ExerciseItem(
     exercise: ExerciseEntity,
-    onLogWeight: (ExerciseEntity) -> Unit,
+    onLogProgress: (ExerciseEntity) -> Unit,
     onOverride: (ExerciseEntity) -> Unit,
     onShowGraph: (ExerciseEntity) -> Unit,
     onDelete: (ExerciseEntity) -> Unit
 ) {
-    val est1RM = remember(exercise.weight, exercise.reps) {
-        CalculationUtils.calculate1RM(exercise.weight, exercise.reps)
+    val est1RM = remember(exercise.weight, exercise.reps, exercise.isBodyweight) {
+        if (exercise.isBodyweight) 0f else CalculationUtils.calculate1RM(exercise.weight, exercise.reps)
     }
-    val volume = remember(exercise.weight, exercise.reps) {
-        exercise.weight * exercise.reps
+    val volume = remember(exercise.weight, exercise.reps, exercise.isBodyweight) {
+        if (exercise.isBodyweight) 0f else exercise.weight * exercise.reps
     }
+
+    val secondaryWeight = remember(exercise.weight, exercise.weightUnit) {
+        if (exercise.weightUnit == "kg") {
+            CalculationUtils.kgToLbs(exercise.weight)
+        } else {
+            CalculationUtils.lbsToKg(exercise.weight)
+        }
+    }
+    val secondaryUnit = if (exercise.weightUnit == "kg") "lbs" else "kg"
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -308,28 +360,42 @@ fun ExerciseItem(
             },
             supportingContent = {
                 Column {
-                    Text("${exercise.weight}${exercise.weightUnit} x ${exercise.reps} reps", style = MaterialTheme.typography.bodyMedium)
-                    Text(
-                        "Est. 1RM: ${"%.1f".format(est1RM)}${exercise.weightUnit} | Vol: ${"%.0f".format(volume)}${exercise.weightUnit}",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Medium
-                    )
+                    if (exercise.isBodyweight) {
+                        Text("Bodyweight x ${exercise.reps} reps", style = MaterialTheme.typography.bodyMedium)
+                    } else {
+                        Text(
+                            "${exercise.weight.roundToInt()}${exercise.weightUnit} / ${secondaryWeight.roundToInt()}$secondaryUnit x ${exercise.reps} reps",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Text(
+                            "Est. 1RM: ${est1RM.roundToInt()}${exercise.weightUnit} | Vol: ${volume.roundToInt()}${exercise.weightUnit}",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
                 }
             },
             trailingContent = {
-                Row {
-                    IconButton(onClick = { onLogWeight(exercise) }) {
-                        Icon(Icons.Default.History, contentDescription = "Log Progress", tint = MaterialTheme.colorScheme.primary)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Row {
+                        IconButton(onClick = { onLogProgress(exercise) }) {
+                            Icon(Icons.Default.History, contentDescription = "Log Progress", tint = MaterialTheme.colorScheme.primary)
+                        }
+                        IconButton(onClick = { onOverride(exercise) }) {
+                            Icon(Icons.Default.Edit, contentDescription = "Override Weight", tint = MaterialTheme.colorScheme.secondary)
+                        }
                     }
-                    IconButton(onClick = { onOverride(exercise) }) {
-                        Icon(Icons.Default.Edit, contentDescription = "Override Weight", tint = MaterialTheme.colorScheme.secondary)
-                    }
-                    IconButton(onClick = { onShowGraph(exercise) }) {
-                        Icon(Icons.AutoMirrored.Filled.ShowChart, contentDescription = "Show Graph", tint = MaterialTheme.colorScheme.secondary)
-                    }
-                    IconButton(onClick = { onDelete(exercise) }) {
-                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error.copy(alpha = 0.6f))
+                    Row {
+                        IconButton(onClick = { onShowGraph(exercise) }) {
+                            Icon(Icons.AutoMirrored.Filled.ShowChart, contentDescription = "Show Graph", tint = MaterialTheme.colorScheme.secondary)
+                        }
+                        IconButton(onClick = { onDelete(exercise) }) {
+                            Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error.copy(alpha = 0.6f))
+                        }
                     }
                 }
             }

@@ -10,6 +10,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -21,6 +22,7 @@ fun SupplementScreen(
     dao: GymDao,
     supplements: List<SupplementEntity>,
     onDelete: (SupplementEntity) -> Unit,
+    onToggleActive: (SupplementEntity) -> Unit,
     onUpdateDosage: (SupplementEntity, Float) -> Unit,
     onOverrideDosage: (SupplementEntity, String) -> Unit
 ) {
@@ -34,10 +36,9 @@ fun SupplementScreen(
         }
     } else {
         val groupedSupplements = remember(supplements) {
-            supplements.groupBy { it.timing }.toSortedMap(compareBy { it.ordinal })
+            supplements.groupBy { it.isActive }.toSortedMap(compareByDescending { it })
         }
 
-        // Stable callbacks to ensure SupplementItem remains skippable
         val onShowGraphInternal = remember { { s: SupplementEntity -> supplementToShowGraph = s } }
         val onLogProgressInternal = remember { { s: SupplementEntity -> supplementToLogProgress = s } }
         val onOverrideInternal = remember { { s: SupplementEntity -> supplementToOverride = s } }
@@ -47,19 +48,19 @@ fun SupplementScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            groupedSupplements.forEach { (timing, items) ->
-                item(key = "header_${timing.name}", contentType = "header") {
+            groupedSupplements.forEach { (isActive, items) ->
+                item(key = "header_${isActive}", contentType = "header") {
                     Column(modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)) {
                         Text(
-                            text = timing.label,
+                            text = if (isActive) "Active Supplements" else "Discontinued Supplements",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
+                            color = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
                         )
                         HorizontalDivider(
                             modifier = Modifier.padding(top = 4.dp),
                             thickness = 1.dp,
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                            color = if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
                         )
                     }
                 }
@@ -74,6 +75,7 @@ fun SupplementScreen(
                         onShowGraph = onShowGraphInternal,
                         onUpdateDosage = onLogProgressInternal,
                         onOverrideDosage = onOverrideInternal,
+                        onToggleActive = onToggleActive,
                         onDelete = onDelete
                     )
                 }
@@ -149,14 +151,20 @@ fun SupplementItem(
     onShowGraph: (SupplementEntity) -> Unit,
     onUpdateDosage: (SupplementEntity) -> Unit,
     onOverrideDosage: (SupplementEntity) -> Unit,
+    onToggleActive: (SupplementEntity) -> Unit,
     onDelete: (SupplementEntity) -> Unit
 ) {
     Card(
         onClick = { onShowGraph(supplement) },
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f)
-        )
+            containerColor = if (supplement.isActive) {
+                MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f)
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+            }
+        ),
+        modifier = Modifier.alpha(if (supplement.isActive) 1f else 0.6f)
     ) {
         ListItem(
             colors = ListItemDefaults.colors(containerColor = Color.Transparent),
@@ -174,19 +182,35 @@ fun SupplementItem(
                 Icon(
                     imageVector = if (supplement.isInjectable) Icons.Default.Vaccines else Icons.Default.Medication,
                     contentDescription = if (supplement.isInjectable) "Injectable" else "Capsule",
-                    tint = MaterialTheme.colorScheme.tertiary
+                    tint = if (supplement.isActive) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.outline
                 )
             },
             trailingContent = {
-                Row {
-                    IconButton(onClick = { onUpdateDosage(supplement) }) {
-                        Icon(Icons.Default.History, contentDescription = "Log Progress", tint = MaterialTheme.colorScheme.primary)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    if (supplement.isActive) {
+                        Row {
+                            IconButton(onClick = { onUpdateDosage(supplement) }) {
+                                Icon(Icons.Default.History, contentDescription = "Log Progress", tint = MaterialTheme.colorScheme.primary)
+                            }
+                            IconButton(onClick = { onOverrideDosage(supplement) }) {
+                                Icon(Icons.Default.Edit, contentDescription = "Override Dosage", tint = MaterialTheme.colorScheme.secondary)
+                            }
+                        }
                     }
-                    IconButton(onClick = { onOverrideDosage(supplement) }) {
-                        Icon(Icons.Default.Edit, contentDescription = "Override Dosage", tint = MaterialTheme.colorScheme.secondary)
-                    }
-                    IconButton(onClick = { onDelete(supplement) }) {
-                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error.copy(alpha = 0.6f))
+                    Row {
+                        IconButton(onClick = { onToggleActive(supplement) }) {
+                            Icon(
+                                if (supplement.isActive) Icons.Default.PauseCircle else Icons.Default.PlayCircle,
+                                contentDescription = if (supplement.isActive) "Discontinue" else "Resume",
+                                tint = if (supplement.isActive) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        IconButton(onClick = { onDelete(supplement) }) {
+                            Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error.copy(alpha = 0.6f))
+                        }
                     }
                 }
             }

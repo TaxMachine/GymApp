@@ -23,6 +23,18 @@ object NfcUtils {
         }
     }
 
+    fun getTagProtocol(tag: Tag): String {
+        val techList = tag.techList
+        return when {
+            techList.contains(MifareClassic::class.java.name) -> "Mifare Classic"
+            techList.contains(MifareUltralight::class.java.name) -> "Mifare Ultralight / NTAG"
+            techList.contains(NfcV::class.java.name) -> "ISO 15693 (NFC-V)"
+            techList.contains(IsoDep::class.java.name) -> "ISO 14443-4 (ISO-DEP)"
+            techList.contains(NfcA::class.java.name) -> "ISO 14443-3A (NFC-A)"
+            else -> "Unknown Protocol"
+        }
+    }
+
     fun readTagFullData(tag: Tag): String {
         // Try ISO 15693 (NFC-V) first as requested
         val nfcV = NfcV.get(tag)

@@ -20,30 +20,16 @@ import dev.taxmachine.gymapp.db.BadgeEntity
 @Composable
 fun BadgeScreen(
     badges: List<BadgeEntity>,
-    isScanning: Boolean,
-    onScanningChange: (Boolean) -> Unit,
     onBadgeClick: (BadgeEntity) -> Unit,
     onEmulateClick: (BadgeEntity) -> Unit,
     onDeleteBadge: (BadgeEntity) -> Unit,
     emulatingBadgeId: String?
 ) {
-    if (isScanning) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                CircularProgressIndicator()
-                Spacer(modifier = Modifier.height(16.dp))
-                Text("Hold your NFC tag near the phone...")
-                Button(onClick = { onScanningChange(false) }, modifier = Modifier.padding(top = 8.dp)) {
-                    Text("Cancel")
-                }
-            }
-        }
-    } else if (badges.isEmpty()) {
+    if (badges.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("No badges added yet. Press + to scan.")
         }
     } else {
-        // Stabilize callbacks for child components
         val onBadgeClickStable = remember(onBadgeClick) { onBadgeClick }
         val onEmulateClickStable = remember(onEmulateClick) { onEmulateClick }
         val onDeleteBadgeStable = remember(onDeleteBadge) { onDeleteBadge }
@@ -83,7 +69,6 @@ fun BadgeItem(
         primaryContainer.copy(alpha = 0.3f)
     }
     
-    // Stabilize lambdas to prevent Card and Button recompositions
     val onCardClick = remember(badge, onClick) { { onClick(badge) } }
     val onEmulateAction = remember(badge, onEmulate) { { onEmulate(badge) } }
     val onDeleteAction = remember(badge, onDelete) { { onDelete(badge) } }
@@ -101,12 +86,12 @@ fun BadgeItem(
             leadingContent = {
                 Icon(Icons.Default.Nfc, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
             },
-            headlineContent = { 
+            headlineContent = {
                 Text(
                     badge.name,
                     fontWeight = FontWeight.Bold,
                     style = MaterialTheme.typography.titleMedium
-                ) 
+                )
             },
             supportingContent = { Text("ID: ${badge.id}", style = MaterialTheme.typography.bodySmall) },
             trailingContent = {

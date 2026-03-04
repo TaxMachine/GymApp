@@ -8,11 +8,24 @@ interface GymDao {
     @Query("SELECT * FROM badges")
     fun getAllBadges(): Flow<List<BadgeEntity>>
 
+    @Query("SELECT * FROM badges WHERE id = :id")
+    suspend fun getBadgeById(id: String): BadgeEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertBadge(badge: BadgeEntity)
 
+    @Update
+    suspend fun updateBadge(badge: BadgeEntity)
+
     @Delete
     suspend fun deleteBadge(badge: BadgeEntity)
+
+    // Badge History
+    @Insert
+    suspend fun insertBadgeHistory(history: BadgeHistoryEntity)
+
+    @Query("SELECT * FROM badge_history WHERE badgeId = :badgeId ORDER BY timestamp DESC")
+    fun getHistoryForBadge(badgeId: String): Flow<List<BadgeHistoryEntity>>
 
     // Splits
     @Query("SELECT * FROM splits")

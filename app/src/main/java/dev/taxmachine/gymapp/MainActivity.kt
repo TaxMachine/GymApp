@@ -27,6 +27,7 @@ import dev.taxmachine.gymapp.utils.NfcUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.core.content.edit
 
 class MainActivity : ComponentActivity() {
     private var nfcAdapter: NfcAdapter? = null
@@ -67,14 +68,14 @@ class MainActivity : ComponentActivity() {
             val onThemeChange = remember(prefs) {
                 { newTheme: AppTheme ->
                     appTheme = newTheme
-                    prefs.edit().putString("theme", newTheme.name).apply()
+                    prefs.edit { putString("theme", newTheme.name) }
                 }
             }
             
             val onDynamicColorChange = remember(prefs) {
                 { enabled: Boolean ->
                     dynamicColor = enabled
-                    prefs.edit().putBoolean("dynamic_color", enabled).apply()
+                    prefs.edit { putBoolean("dynamic_color", enabled) }
                 }
             }
 
