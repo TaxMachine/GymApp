@@ -11,16 +11,28 @@ import dev.taxmachine.gymapp.db.BadgeEntity
 
 object NfcUtils {
 
+    private val HEX_CHARS = "0123456789abcdef".toCharArray()
+
     fun bytesToHex(bytes: ByteArray): String {
-        return bytes.joinToString("") { "%02x".format(it) }
+        val result = StringBuilder(bytes.size * 2)
+        for (byte in bytes) {
+            val i = byte.toInt() and 0xFF
+            result.append(HEX_CHARS[i shr 4])
+            result.append(HEX_CHARS[i and 0x0F])
+        }
+        return result.toString()
     }
 
     fun hexToBytes(hex: String): ByteArray {
-        return try {
-            hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-        } catch (e: Exception) {
-            byteArrayOf()
+        if (hex.length % 2 != 0) return byteArrayOf()
+        val result = ByteArray(hex.length / 2)
+        for (i in 0 until hex.length step 2) {
+            val first = Character.digit(hex[i], 16)
+            val second = Character.digit(hex[i + 1], 16)
+            if (first == -1 || second == -1) return byteArrayOf()
+            result[i / 2] = ((first shl 4) or second).toByte()
         }
+        return result
     }
 
     fun getTagProtocol(tag: Tag): String {
@@ -36,25 +48,19 @@ object NfcUtils {
     }
 
     fun readTagFullData(tag: Tag): String {
-        // Try ISO 15693 (NFC-V) first as requested
         val nfcV = NfcV.get(tag)
         if (nfcV != null) {
             try {
                 nfcV.connect()
                 val fullData = mutableListOf<Byte>()
-                // ISO 15693 tags typically have blocks. We'll try to read up to 64 blocks.
                 for (i in 0 until 64) {
                     val response = try {
-                        // Flags: 0x02 (High data rate), Command: 0x20 (Read single block)
                         nfcV.transceive(byteArrayOf(0x02.toByte(), 0x20.toByte(), i.toByte()))
                     } catch (e: Exception) { null }
                     
-                    if (response != null && response.size >= 1) {
-                        // First byte is usually response flags (0x00 = success)
-                        if (response[0] == 0x00.toByte() && response.size > 1) {
-                            fullData.addAll(response.slice(1 until response.size))
-                        } else {
-                            break
+                    if (response != null && response.size > 1 && response[0] == 0x00.toByte()) {
+                        for (j in 1 until response.size) {
+                            fullData.add(response[j])
                         }
                     } else {
                         break
@@ -62,7 +68,6 @@ object NfcUtils {
                 }
                 nfcV.close()
                 if (fullData.isNotEmpty()) {
-                    Log.d("NFC", "Successfully read ISO 15693 tag")
                     return bytesToHex(fullData.toByteArray())
                 }
             } catch (e: Exception) {
@@ -78,7 +83,7 @@ object NfcUtils {
                 for (i in 0 until 256 step 4) {
                     val data = try { mu.readPages(i) } catch (e: Exception) { null }
                     if (data != null && data.size >= 16) {
-                        fullData.addAll(data.toList())
+                        for (b in data) fullData.add(b)
                     } else {
                         break
                     }
@@ -106,10 +111,7 @@ object NfcUtils {
                 for (s in 0 until mc.sectorCount) {
                     var authenticated = false
                     for (key in keys) {
-                        if (mc.authenticateSectorWithKeyA(s, key)) {
-                            authenticated = true
-                            break
-                        } else if (mc.authenticateSectorWithKeyB(s, key)) {
+                        if (mc.authenticateSectorWithKeyA(s, key) || mc.authenticateSectorWithKeyB(s, key)) {
                             authenticated = true
                             break
                         }
@@ -119,7 +121,7 @@ object NfcUtils {
                         for (b in 0 until mc.getBlockCountInSector(s)) {
                             try {
                                 val blockData = mc.readBlock(firstBlock + b)
-                                fullData.addAll(blockData.toList())
+                                for (byte in blockData) fullData.add(byte)
                             } catch (e: Exception) {
                                 repeat(16) { fullData.add(0) }
                             }
@@ -146,7 +148,7 @@ object NfcUtils {
                     } catch (e: Exception) { null }
                     
                     if (response != null && response.size >= 16) {
-                        fullData.addAll(response.toList())
+                        for (b in response) fullData.add(b)
                     } else {
                         break
                     }
@@ -177,21 +179,33 @@ object NfcUtils {
     fun formatHexDump(hex: String): String {
         if (hex.isEmpty()) return "No data"
         val bytes = hexToBytes(hex)
-        if (bytes.isEmpty() && hex.isNotEmpty()) return "Invalid data format: $hex"
+        if (bytes.isEmpty()) return "Invalid data format"
         
         val sb = StringBuilder()
         for (i in bytes.indices step 16) {
-            sb.append("%04x: ".format(i))
-            val chunk = bytes.toList().subList(i, minOf(i + 16, bytes.size))
+            // Offset
+            sb.append(String.format("%04x: ", i))
+            
+            // Hex bytes
             for (j in 0 until 16) {
-                if (j < chunk.size) sb.append("%02x ".format(chunk[j]))
-                else sb.append("   ")
-                if (j == 7) sb.append(" ")
+                if (i + j < bytes.size) {
+                    val b = bytes[i + j].toInt() and 0xFF
+                    sb.append(HEX_CHARS[b shr 4])
+                    sb.append(HEX_CHARS[b and 0x0F])
+                    sb.append(' ')
+                } else {
+                    sb.append("   ")
+                }
+                if (j == 7) sb.append(' ')
             }
+            
+            // ASCII
             sb.append(" |")
-            for (j in chunk.indices) {
-                val c = chunk[j].toInt().toChar()
-                if (c in ' '..'~') sb.append(c) else sb.append('.')
+            for (j in 0 until 16) {
+                if (i + j < bytes.size) {
+                    val c = bytes[i + j].toInt().toChar()
+                    if (c in ' '..'~') sb.append(c) else sb.append('.')
+                }
             }
             sb.append("|\n")
         }
@@ -199,21 +213,36 @@ object NfcUtils {
     }
 
     fun convertToNfcFormat(badge: BadgeEntity): String {
-        val hex = badge.tagData
-        if (hex.isEmpty()) return ""
-        val bytes = hexToBytes(hex)
+        val bytes = hexToBytes(badge.tagData)
         if (bytes.isEmpty()) return ""
         
         val sb = StringBuilder()
         sb.append("Filetype: Flipper NFC device\n")
         sb.append("Version: 3\n")
         sb.append("Device type: NTAG213\n")
-        sb.append("UID: ${badge.id.chunked(2).joinToString(" ").uppercase()}\n")
-        sb.append("ATQA: 44 00\n")
-        sb.append("SAK: 00\n")
+        
+        sb.append("UID: ")
+        val uidBytes = hexToBytes(badge.id)
+        for (i in uidBytes.indices) {
+            val b = uidBytes[i].toInt() and 0xFF
+            sb.append(HEX_CHARS[b shr 4].uppercaseChar())
+            sb.append(HEX_CHARS[b and 0x0F].uppercaseChar())
+            if (i < uidBytes.size - 1) sb.append(' ')
+        }
+        sb.append("\nATQA: 44 00\nSAK: 00\n")
+
         for (i in 0 until (bytes.size / 4)) {
-            val pageData = bytes.slice(i * 4 until minOf((i + 1) * 4, bytes.size)).joinToString(" ") { "%02X".format(it) }
-            sb.append("Page $i: $pageData\n")
+            sb.append("Page $i: ")
+            for (j in 0 until 4) {
+                val idx = i * 4 + j
+                if (idx < bytes.size) {
+                    val b = bytes[idx].toInt() and 0xFF
+                    sb.append(HEX_CHARS[b shr 4].uppercaseChar())
+                    sb.append(HEX_CHARS[b and 0x0F].uppercaseChar())
+                    if (j < 3) sb.append(' ')
+                }
+            }
+            sb.append('\n')
         }
         return sb.toString()
     }

@@ -1,6 +1,12 @@
 package dev.taxmachine.gymapp.ui.screens
 
 import android.nfc.Tag
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -45,6 +51,12 @@ fun MainScreen(
     var emulatingBadgeId by remember { mutableStateOf<String?>(null) }
     var showAddSupplementDialog by remember { mutableStateOf(false) }
 
+    var exerciseToViewProgression by remember { mutableStateOf<ExerciseEntity?>(null) }
+    var supplementToViewProgression by remember { mutableStateOf<SupplementEntity?>(null) }
+    
+    // Track if we are inside a split (viewing an exercise list)
+    var isInsideSplit by remember { mutableStateOf(false) }
+
     val updateEvent by NfcEmulationService.updateEvent.collectAsState()
 
     LaunchedEffect(isScanning) {
@@ -58,6 +70,16 @@ fun MainScreen(
     LaunchedEffect(scannedTag) {
         if (scannedTag != null) {
             showNamingDialog = true
+        }
+    }
+
+    // Unified Back Handler - Efficient and handles the hierarchy correctly
+    BackHandler(enabled = exerciseToViewProgression != null || supplementToViewProgression != null || isInsideSplit || selectedTab != 0) {
+        when {
+            exerciseToViewProgression != null -> exerciseToViewProgression = null
+            supplementToViewProgression != null -> supplementToViewProgression = null
+            isInsideSplit -> isInsideSplit = false
+            else -> selectedTab = 0
         }
     }
 
@@ -136,118 +158,163 @@ fun MainScreen(
         )
     }
 
-    Scaffold(
-        bottomBar = {
-            NavigationBar {
-                NavigationBarItem(
-                    icon = { Icon(Icons.Default.Badge, contentDescription = "Badges") },
-                    label = { Text("Badges") },
-                    selected = selectedTab == 0,
-                    onClick = { selectedTab = 0 }
-                )
-                NavigationBarItem(
-                    icon = { Icon(Icons.Default.FitnessCenter, contentDescription = "Exercises") },
-                    label = { Text("Workouts") },
-                    selected = selectedTab == 1,
-                    onClick = { selectedTab = 1 }
-                )
-                NavigationBarItem(
-                    icon = { Icon(Icons.Default.MedicalServices, contentDescription = "Supps") },
-                    label = { Text("Supps") },
-                    selected = selectedTab == 2,
-                    onClick = { selectedTab = 2 }
-                )
-                NavigationBarItem(
-                    icon = { Icon(Icons.Default.Calculate, contentDescription = "Peptide Calc") },
-                    label = { Text("Peptide Calc") },
-                    selected = selectedTab == 3,
-                    onClick = { selectedTab = 3 }
-                )
-                NavigationBarItem(
-                    icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
-                    label = { Text("Settings") },
-                    selected = selectedTab == 4,
-                    onClick = { selectedTab = 4 }
-                )
-            }
-        },
-        floatingActionButton = {
-            if (selectedTab == 0 && !isScanning) {
-                FloatingActionButton(onClick = { onScanningChange(true) }) {
-                    Icon(Icons.Default.Add, contentDescription = "Add Badge")
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            bottomBar = {
+                NavigationBar {
+                    NavigationBarItem(
+                        icon = { Icon(Icons.Default.Badge, contentDescription = "Badges") },
+                        label = { Text("Badges") },
+                        selected = selectedTab == 0,
+                        onClick = { selectedTab = 0 }
+                    )
+                    NavigationBarItem(
+                        icon = { Icon(Icons.Default.FitnessCenter, contentDescription = "Exercises") },
+                        label = { Text("Workouts") },
+                        selected = selectedTab == 1,
+                        onClick = { selectedTab = 1 }
+                    )
+                    NavigationBarItem(
+                        icon = { Icon(Icons.Default.MedicalServices, contentDescription = "Supps") },
+                        label = { Text("Supps") },
+                        selected = selectedTab == 2,
+                        onClick = { selectedTab = 2 }
+                    )
+                    NavigationBarItem(
+                        icon = { Icon(Icons.Default.Calculate, contentDescription = "Peptide Calc") },
+                        label = { Text("Peptide Calc") },
+                        selected = selectedTab == 3,
+                        onClick = { selectedTab = 3 }
+                    )
+                    NavigationBarItem(
+                        icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
+                        label = { Text("Settings") },
+                        selected = selectedTab == 4,
+                        onClick = { selectedTab = 4 }
+                    )
                 }
-            } else if (selectedTab == 2) {
-                FloatingActionButton(onClick = { showAddSupplementDialog = true }) {
-                    Icon(Icons.Default.Add, contentDescription = "Add Supplement")
+            },
+            floatingActionButton = {
+                if (selectedTab == 0 && !isScanning) {
+                    FloatingActionButton(onClick = { onScanningChange(true) }) {
+                        Icon(Icons.Default.Add, contentDescription = "Add Badge")
+                    }
+                } else if (selectedTab == 2) {
+                    FloatingActionButton(onClick = { showAddSupplementDialog = true }) {
+                        Icon(Icons.Default.Add, contentDescription = "Add Supplement")
+                    }
+                }
+            }
+        ) { innerPadding ->
+            Column(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
+                when (selectedTab) {
+                    0 -> {
+                        val onBadgeClick = remember { { badge: BadgeEntity -> selectedBadgeForDetails = badge } }
+                        val onEmulateClick = remember {
+                            { badge: BadgeEntity ->
+                                if (emulatingBadgeId == badge.id) {
+                                    emulatingBadgeId = null
+                                    NfcEmulationService.activeTagData = null
+                                    NfcEmulationService.currentBadgeId = null
+                                } else {
+                                    emulatingBadgeId = badge.id
+                                    NfcEmulationService.activeTagData = badge.tagData
+                                    NfcEmulationService.currentBadgeId = badge.id
+                                }
+                            }
+                        }
+                        val onDeleteBadge = remember(dao) { { badge: BadgeEntity -> scope.launch { dao.deleteBadge(badge) } ; Unit } }
+                        
+                        BadgeScreen(
+                            badges = badges,
+                            onBadgeClick = onBadgeClick,
+                            onEmulateClick = onEmulateClick,
+                            onDeleteBadge = onDeleteBadge,
+                            emulatingBadgeId = emulatingBadgeId
+                        )
+                    }
+                    1 -> WorkoutSplitScreen(
+                        dao = dao, 
+                        onShowGraph = { exerciseToViewProgression = it },
+                        isInsideSplit = isInsideSplit,
+                        onInsideSplitChange = { isInsideSplit = it }
+                    )
+                    2 -> {
+                        val onDeleteSupp = remember(dao) { { s: SupplementEntity -> scope.launch { dao.deleteSupplement(s) } ; Unit } }
+                        val onToggleActive = remember(dao) { { s: SupplementEntity -> scope.launch { dao.updateSupplement(s.copy(isActive = !s.isActive)) } ; Unit } }
+                        val onUpdateDosage = remember(dao) {
+                            { s: SupplementEntity, dose: Float ->
+                                scope.launch {
+                                    dao.insertSupplementLog(SupplementLogEntity(supplementUid = s.uid, dosage = dose))
+                                }
+                                Unit
+                            }
+                        }
+                        val onOverrideDosage = remember(dao) {
+                            { s: SupplementEntity, dose: String ->
+                                scope.launch {
+                                    dao.updateSupplement(s.copy(dosage = dose))
+                                }
+                                Unit
+                            }
+                        }
+
+                        SupplementScreen(
+                            dao = dao,
+                            supplements = supplements,
+                            onDelete = onDeleteSupp,
+                            onToggleActive = onToggleActive,
+                            onUpdateDosage = onUpdateDosage,
+                            onOverrideDosage = onOverrideDosage,
+                            onShowGraph = { supplementToViewProgression = it }
+                        )
+                    }
+                    3 -> PeptideCalculatorScreen()
+                    4 -> SettingsScreen(
+                        currentTheme = currentTheme,
+                        onThemeChange = onThemeChange,
+                        dynamicColor = dynamicColor,
+                        onDynamicColorChange = onDynamicColorChange,
+                        dao = dao,
+                        db = db
+                    )
                 }
             }
         }
-    ) { innerPadding ->
-        Column(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
-            when (selectedTab) {
-                0 -> {
-                    val onBadgeClick = remember { { badge: BadgeEntity -> selectedBadgeForDetails = badge } }
-                    val onEmulateClick = remember {
-                        { badge: BadgeEntity ->
-                            if (emulatingBadgeId == badge.id) {
-                                emulatingBadgeId = null
-                                NfcEmulationService.activeTagData = null
-                                NfcEmulationService.currentBadgeId = null
-                            } else {
-                                emulatingBadgeId = badge.id
-                                NfcEmulationService.activeTagData = badge.tagData
-                                NfcEmulationService.currentBadgeId = badge.id
-                            }
-                        }
-                    }
-                    val onDeleteBadge = remember(dao) { { badge: BadgeEntity -> scope.launch { dao.deleteBadge(badge) } ; Unit } }
-                    
-                    BadgeScreen(
-                        badges = badges,
-                        onBadgeClick = onBadgeClick,
-                        onEmulateClick = onEmulateClick,
-                        onDeleteBadge = onDeleteBadge,
-                        emulatingBadgeId = emulatingBadgeId
-                    )
-                }
-                1 -> WorkoutSplitScreen(dao)
-                2 -> {
-                    val onDeleteSupp = remember(dao) { { s: SupplementEntity -> scope.launch { dao.deleteSupplement(s) } ; Unit } }
-                    val onToggleActive = remember(dao) { { s: SupplementEntity -> scope.launch { dao.updateSupplement(s.copy(isActive = !s.isActive)) } ; Unit } }
-                    val onUpdateDosage = remember(dao) {
-                        { s: SupplementEntity, dose: Float ->
-                            scope.launch {
-                                dao.insertSupplementLog(SupplementLogEntity(supplementUid = s.uid, dosage = dose))
-                            }
-                            Unit
-                        }
-                    }
-                    val onOverrideDosage = remember(dao) {
-                        { s: SupplementEntity, dose: String ->
-                            scope.launch {
-                                dao.updateSupplement(s.copy(dosage = dose))
-                            }
-                            Unit
-                        }
-                    }
 
-                    SupplementScreen(
-                        dao = dao,
-                        supplements = supplements,
-                        onDelete = onDeleteSupp,
-                        onToggleActive = onToggleActive,
-                        onUpdateDosage = onUpdateDosage,
-                        onOverrideDosage = onOverrideDosage
-                    )
-                }
-                3 -> PeptideCalculatorScreen()
-                4 -> SettingsScreen(
-                    currentTheme = currentTheme,
-                    onThemeChange = onThemeChange,
-                    dynamicColor = dynamicColor,
-                    onDynamicColorChange = onDynamicColorChange,
-                    dao = dao,
-                    db = db
+        // Overlay screens (outside the Scaffold to cover the bottom bar and remove the black space)
+        AnimatedVisibility(
+            visible = exerciseToViewProgression != null,
+            enter = fadeIn() + slideInVertically { it },
+            exit = fadeOut() + slideOutVertically { it }
+        ) {
+            if (exerciseToViewProgression != null) {
+                val logs by remember(dao, exerciseToViewProgression!!.id) { 
+                    dao.getWeightLogsForExercise(exerciseToViewProgression!!.id) 
+                }.collectAsState(initial = emptyList())
+                
+                ExerciseProgressionScreen(
+                    exercise = exerciseToViewProgression!!,
+                    logs = logs,
+                    onBack = { exerciseToViewProgression = null }
+                )
+            }
+        }
+
+        AnimatedVisibility(
+            visible = supplementToViewProgression != null,
+            enter = fadeIn() + slideInVertically { it },
+            exit = fadeOut() + slideOutVertically { it }
+        ) {
+            if (supplementToViewProgression != null) {
+                val logs by remember(dao, supplementToViewProgression!!.uid) { 
+                    dao.getLogsForSupplement(supplementToViewProgression!!.uid) 
+                }.collectAsState(initial = emptyList())
+                
+                SupplementProgressionScreen(
+                    supplement = supplementToViewProgression!!,
+                    logs = logs,
+                    onBack = { supplementToViewProgression = null }
                 )
             }
         }

@@ -1,5 +1,6 @@
 package dev.taxmachine.gymapp.ui.screens
 
+import android.content.Context
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -17,7 +18,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -27,6 +27,7 @@ import dev.taxmachine.gymapp.ui.theme.toColorScheme
 import dev.taxmachine.gymapp.ui.theme.toEntity
 import dev.taxmachine.gymapp.ui.dialogs.ColorPickerDialog
 import dev.taxmachine.gymapp.utils.DataUtils
+import dev.taxmachine.gymapp.receiver.SupplementReminderReceiver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -42,6 +43,8 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val prefs = remember { context.getSharedPreferences("gym_prefs", Context.MODE_PRIVATE) }
+
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showDatabaseViewer by remember { mutableStateOf(false) }
 
@@ -51,6 +54,14 @@ fun SettingsScreen(
     var showAdvanced by remember { mutableStateOf(false) }
     var editingDarkTheme by remember { mutableStateOf(false) }
     var colorToEdit by remember { mutableStateOf<Triple<String, Color, (Color) -> Unit>?>(null) }
+
+    // Notification Settings
+    var notificationsEnabled by remember { mutableStateOf(prefs.getBoolean("notifications_enabled", true)) }
+    var morningOffset by remember { mutableStateOf(prefs.getInt("morning_offset_minutes", 10)) }
+    var nightHour by remember { mutableStateOf(prefs.getInt("night_hour", 22)) }
+
+    // Weight Unit Settings
+    var weightUnit by remember { mutableStateOf(prefs.getString("weight_unit", "kg") ?: "kg") }
 
     if (showDatabaseViewer) {
         DatabaseViewer(dao = dao, onBack = { showDatabaseViewer = false })
@@ -73,6 +84,14 @@ fun SettingsScreen(
         uri?.let {
             scope.launch {
                 DataUtils.importDataFromJson(context, it, dao)
+                // Refresh local state after import
+                notificationsEnabled = prefs.getBoolean("notifications_enabled", true)
+                morningOffset = prefs.getInt("morning_offset_minutes", 10)
+                nightHour = prefs.getInt("night_hour", 22)
+                weightUnit = prefs.getString("weight_unit", "kg") ?: "kg"
+                onThemeChange(AppTheme.valueOf(prefs.getString("theme", AppTheme.SYSTEM.name)!!))
+                onDynamicColorChange(prefs.getBoolean("dynamic_color", true))
+                SupplementReminderReceiver.scheduleReminder(context)
             }
         }
     }
@@ -175,6 +194,93 @@ fun SettingsScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        SettingsSection(title = "Units", icon = Icons.Default.Straighten) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Preferred Weight Unit", modifier = Modifier.weight(1f))
+                val units = listOf("kg", "lbs")
+                var expanded by remember { mutableStateOf(false) }
+                Box {
+                    TextButton(onClick = { expanded = true }) {
+                        Text(weightUnit.uppercase())
+                        Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                    }
+                    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                        units.forEach { unit ->
+                            DropdownMenuItem(
+                                text = { Text(unit.uppercase()) },
+                                onClick = {
+                                    weightUnit = unit
+                                    prefs.edit().putString("weight_unit", unit).apply()
+                                    expanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+            Text(
+                "Weights will be converted and displayed in this unit throughout the app.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline
+            )
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        SettingsSection(title = "Notifications", icon = Icons.Default.Notifications) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(
+                    checked = notificationsEnabled,
+                    onCheckedChange = {
+                        notificationsEnabled = it
+                        prefs.edit().putBoolean("notifications_enabled", it).apply()
+                        SupplementReminderReceiver.scheduleReminder(context)
+                    }
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text("Enable Supplement Reminders")
+            }
+
+            if (notificationsEnabled) {
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                Text("Morning Notification Delay", style = MaterialTheme.typography.labelLarge)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Slider(
+                        value = morningOffset.toFloat(),
+                        onValueChange = { morningOffset = it.toInt() },
+                        onValueChangeFinished = {
+                            prefs.edit().putInt("morning_offset_minutes", morningOffset).apply()
+                            SupplementReminderReceiver.scheduleReminder(context)
+                        },
+                        valueRange = 0f..60f,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text("${morningOffset}m", modifier = Modifier.width(40.dp))
+                }
+                Text("Minutes after your morning alarm clock.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text("Night Notification Time", style = MaterialTheme.typography.labelLarge)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Slider(
+                        value = nightHour.toFloat(),
+                        onValueChange = { nightHour = it.toInt() },
+                        onValueChangeFinished = {
+                            prefs.edit().putInt("night_hour", nightHour).apply()
+                            SupplementReminderReceiver.scheduleReminder(context)
+                        },
+                        valueRange = 18f..23f,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text("${nightHour}:00", modifier = Modifier.width(40.dp))
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
         SettingsSection(title = "Data Management", icon = Icons.Default.Storage) {
             OutlinedButton(
                 onClick = { exportLauncher.launch("gymapp_backup.json") },
@@ -183,7 +289,7 @@ fun SettingsScreen(
             ) {
                 Icon(Icons.Default.Download, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Export Database (JSON)")
+                Text("Export Database & Settings")
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -195,7 +301,7 @@ fun SettingsScreen(
             ) {
                 Icon(Icons.Default.Upload, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Import Database (JSON)")
+                Text("Import Database & Settings")
             }
 
             Spacer(modifier = Modifier.height(8.dp))

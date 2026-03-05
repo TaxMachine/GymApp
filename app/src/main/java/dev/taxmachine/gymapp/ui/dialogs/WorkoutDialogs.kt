@@ -257,13 +257,17 @@ fun PerformanceMetricsSummary(logs: List<WeightLogEntity>, unit: String, isBodyw
         if (!isBodyweight) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("Starting Weight: ${stats.start}$unit", style = MaterialTheme.typography.bodySmall)
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("Personal Best: ${stats.personalBest}$unit", style = MaterialTheme.typography.bodySmall)
             }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("Total Volume: ${"%.0f".format(stats.volume)}$unit", style = MaterialTheme.typography.bodySmall)
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("Current: ${stats.current}$unit", style = MaterialTheme.typography.bodySmall)
             }
-            
+
             val progressColor = if (stats.difference >= 0) Color(0xFF4CAF50) else Color.Red
             Text(
                 text = "Total Progress: ${if (stats.difference >= 0) "+" else ""}${"%.1f".format(stats.difference)}$unit (${"%.1f".format(stats.percentage)}%)",

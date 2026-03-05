@@ -15,7 +15,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.taxmachine.gymapp.db.*
-import dev.taxmachine.gymapp.ui.dialogs.SupplementProgressionDialog
+import dev.taxmachine.gymapp.ui.components.ActionButtonColumn
 
 @Composable
 fun SupplementScreen(
@@ -24,9 +24,9 @@ fun SupplementScreen(
     onDelete: (SupplementEntity) -> Unit,
     onToggleActive: (SupplementEntity) -> Unit,
     onUpdateDosage: (SupplementEntity, Float) -> Unit,
-    onOverrideDosage: (SupplementEntity, String) -> Unit
+    onOverrideDosage: (SupplementEntity, String) -> Unit,
+    onShowGraph: (SupplementEntity) -> Unit
 ) {
-    var supplementToShowGraph by remember { mutableStateOf<SupplementEntity?>(null) }
     var supplementToLogProgress by remember { mutableStateOf<SupplementEntity?>(null) }
     var supplementToOverride by remember { mutableStateOf<SupplementEntity?>(null) }
 
@@ -39,7 +39,6 @@ fun SupplementScreen(
             supplements.groupBy { it.isActive }.toSortedMap(compareByDescending { it })
         }
 
-        val onShowGraphInternal = remember { { s: SupplementEntity -> supplementToShowGraph = s } }
         val onLogProgressInternal = remember { { s: SupplementEntity -> supplementToLogProgress = s } }
         val onOverrideInternal = remember { { s: SupplementEntity -> supplementToOverride = s } }
 
@@ -72,7 +71,7 @@ fun SupplementScreen(
                 ) { s ->
                     SupplementItem(
                         supplement = s,
-                        onShowGraph = onShowGraphInternal,
+                        onShowGraph = onShowGraph,
                         onUpdateDosage = onLogProgressInternal,
                         onOverrideDosage = onOverrideInternal,
                         onToggleActive = onToggleActive,
@@ -118,7 +117,7 @@ fun SupplementScreen(
             text = {
                 OutlinedTextField(
                     value = newDosage,
-                    onValueChange = { newDosage = it },
+                    onValueChange = { newValue -> newDosage = newValue },
                     label = { Text("Current Dosage (${s.unit.label})") }
                 )
             },
@@ -131,16 +130,6 @@ fun SupplementScreen(
             dismissButton = {
                 TextButton(onClick = { supplementToOverride = null }) { Text("Cancel") }
             }
-        )
-    }
-
-    if (supplementToShowGraph != null) {
-        val s = supplementToShowGraph!!
-        val logs by remember(dao, s.uid) { dao.getLogsForSupplement(s.uid) }.collectAsState(initial = emptyList())
-        SupplementProgressionDialog(
-            supplement = s,
-            logs = logs,
-            onDismiss = { supplementToShowGraph = null }
         )
     }
 }
@@ -186,10 +175,7 @@ fun SupplementItem(
                 )
             },
             trailingContent = {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
+                ActionButtonColumn {
                     if (supplement.isActive) {
                         Row {
                             IconButton(onClick = { onUpdateDosage(supplement) }) {

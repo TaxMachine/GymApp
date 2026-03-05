@@ -45,12 +45,14 @@ object DataUtils {
                                 put("weight", ex.weight)
                                 put("weightUnit", ex.weightUnit)
                                 put("reps", ex.reps)
+                                put("isBodyweight", ex.isBodyweight)
                                 
                                 val logs = dao.getWeightLogsForExercise(ex.id).first()
                                 val logsArray = JSONArray()
                                 logs.forEach { log ->
                                     logsArray.put(JSONObject().apply {
                                         put("weight", log.weight)
+                                        put("reps", log.reps)
                                         put("timestamp", log.timestamp)
                                     })
                                 }
@@ -75,6 +77,7 @@ object DataUtils {
                         put("timing", s.timing.name)
                         put("frequency", s.frequency.name)
                         put("isInjectable", s.isInjectable)
+                        put("isActive", s.isActive)
                         
                         val logs = dao.getLogsForSupplement(s.uid).first()
                         val logsArray = JSONArray()
@@ -111,6 +114,17 @@ object DataUtils {
                     })
                 }
                 root.put("customThemes", themesArray)
+
+                // Preferences
+                val prefs = context.getSharedPreferences("gym_prefs", Context.MODE_PRIVATE)
+                val prefsObj = JSONObject().apply {
+                    put("notifications_enabled", prefs.getBoolean("notifications_enabled", true))
+                    put("morning_offset_minutes", prefs.getInt("morning_offset_minutes", 10))
+                    put("night_hour", prefs.getInt("night_hour", 22))
+                    put("theme", prefs.getString("theme", "SYSTEM"))
+                    put("dynamic_color", prefs.getBoolean("dynamic_color", true))
+                }
+                root.put("preferences", prefsObj)
 
                 context.contentResolver.openOutputStream(uri)?.use { outputStream ->
                     OutputStreamWriter(outputStream).use { writer ->
@@ -157,7 +171,8 @@ object DataUtils {
                                 name = ex.getString("name"),
                                 weight = ex.getDouble("weight").toFloat(),
                                 weightUnit = ex.getString("weightUnit"),
-                                reps = ex.getInt("reps")
+                                reps = ex.getInt("reps"),
+                                isBodyweight = ex.optBoolean("isBodyweight", false)
                             ))
                             
                             val logs = ex.optJSONArray("logs")
@@ -166,6 +181,7 @@ object DataUtils {
                                 dao.insertWeightLog(WeightLogEntity(
                                     exerciseId = exerciseId,
                                     weight = log.getDouble("weight").toFloat(),
+                                    reps = log.optInt("reps", 0),
                                     timestamp = log.getLong("timestamp")
                                 ))
                             }
@@ -182,7 +198,8 @@ object DataUtils {
                             unit = DosingUnit.valueOf(s.getString("unit")),
                             timing = AdministrationTiming.valueOf(s.getString("timing")),
                             frequency = AdministrationFrequency.valueOf(s.getString("frequency")),
-                            isInjectable = s.getBoolean("isInjectable")
+                            isInjectable = s.getBoolean("isInjectable"),
+                            isActive = s.optBoolean("isActive", true)
                         ))
                         
                         val logs = s.optJSONArray("logs")
@@ -215,6 +232,19 @@ object DataUtils {
                             error = t.getLong("error"),
                             onError = t.getLong("onError")
                         ))
+                    }
+
+                    // Preferences
+                    val prefsObj = root.optJSONObject("preferences")
+                    if (prefsObj != null) {
+                        val prefs = context.getSharedPreferences("gym_prefs", Context.MODE_PRIVATE)
+                        prefs.edit().apply {
+                            putBoolean("notifications_enabled", prefsObj.optBoolean("notifications_enabled", true))
+                            putInt("morning_offset_minutes", prefsObj.optInt("morning_offset_minutes", 10))
+                            putInt("night_hour", prefsObj.optInt("night_hour", 22))
+                            putString("theme", prefsObj.optString("theme", "SYSTEM"))
+                            putBoolean("dynamic_color", prefsObj.optBoolean("dynamic_color", true))
+                        }.apply()
                     }
 
                     withContext(Dispatchers.Main) {
