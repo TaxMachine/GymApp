@@ -28,6 +28,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.core.content.edit
+import androidx.health.connect.client.PermissionController
+import dev.taxmachine.gymapp.health.HealthConnectManager
 
 class MainActivity : ComponentActivity() {
     private var nfcAdapter: NfcAdapter? = null
@@ -36,10 +38,12 @@ class MainActivity : ComponentActivity() {
     private val scannedData = mutableStateOf<String?>(null)
 
     private lateinit var pendingIntent: PendingIntent
+    private lateinit var healthConnectManager: HealthConnectManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         nfcAdapter = NfcAdapter.getDefaultAdapter(this)
+        healthConnectManager = HealthConnectManager(this)
         
         if (nfcAdapter == null) {
             Toast.makeText(this, "NFC is not available on this device.", Toast.LENGTH_LONG).show()
@@ -91,6 +95,15 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            // Health Connect Permissions Launcher
+            val requestPermissionsLauncher = rememberLauncherForActivityResult(
+                PermissionController.createRequestPermissionResultContract()
+            ) { granted ->
+                if (granted.containsAll(healthConnectManager.permissions)) {
+                    // Permissions granted
+                }
+            }
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 val launcher = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestPermission()
@@ -126,7 +139,11 @@ class MainActivity : ComponentActivity() {
                     dynamicColor = dynamicColor,
                     onDynamicColorChange = onDynamicColorChange,
                     enableNfcForegroundDispatch = enableNfcForegroundDispatchLambda,
-                    disableNfcForegroundDispatch = disableNfcForegroundDispatchLambda
+                    disableNfcForegroundDispatch = disableNfcForegroundDispatchLambda,
+                    healthConnectManager = healthConnectManager,
+                    onRequestHealthPermissions = {
+                        requestPermissionsLauncher.launch(healthConnectManager.permissions)
+                    }
                 )
             }
         }

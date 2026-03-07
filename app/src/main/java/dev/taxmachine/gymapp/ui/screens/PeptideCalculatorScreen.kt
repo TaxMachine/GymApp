@@ -21,13 +21,15 @@ fun PeptideCalculatorScreen() {
     var peptideMass by remember { mutableStateOf("5") } // mg
     var bacWater by remember { mutableStateOf("2") } // ml
     var desiredDose by remember { mutableStateOf("250") } // mcg
+    var doseUnit by remember { mutableStateOf("mcg") } // mcg or mg
 
     val mass = peptideMass.toDoubleOrNull() ?: 0.0
     val water = bacWater.toDoubleOrNull() ?: 0.0
-    val dose = desiredDose.toDoubleOrNull() ?: 0.0
+    val doseRaw = desiredDose.toDoubleOrNull() ?: 0.0
+    val doseMcg = if (doseUnit == "mg") doseRaw * 1000 else doseRaw
 
-    val resultUnits = CalculationUtils.calculatePeptideDose(mass, water, dose)
-    val totalDoses = CalculationUtils.calculateTotalDoses(mass, dose)
+    val resultUnits = CalculationUtils.calculatePeptideDose(mass, water, doseMcg)
+    val totalDoses = CalculationUtils.calculateTotalDoses(mass, doseMcg)
 
     Column(
         modifier = Modifier
@@ -43,7 +45,7 @@ fun PeptideCalculatorScreen() {
             tint = MaterialTheme.colorScheme.primary
         )
         Text(
-            text = "Peptide Reconstitution",
+            text = "Reconstitution Calculator",
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(vertical = 16.dp)
@@ -52,7 +54,8 @@ fun PeptideCalculatorScreen() {
         OutlinedTextField(
             value = peptideMass,
             onValueChange = { peptideMass = it },
-            label = { Text("Peptide Mass (mg)") },
+            label = { Text("Vial Mass (mg)") },
+            placeholder = { Text("e.g. 5, 50, 100, 600") },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             modifier = Modifier.fillMaxWidth()
         )
@@ -61,17 +64,38 @@ fun PeptideCalculatorScreen() {
             value = bacWater,
             onValueChange = { bacWater = it },
             label = { Text("BAC Water (ml)") },
+            placeholder = { Text("e.g. 2 or 3") },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(modifier = Modifier.height(8.dp))
-        OutlinedTextField(
-            value = desiredDose,
-            onValueChange = { desiredDose = it },
-            label = { Text("Desired Dose (mcg)") },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-            modifier = Modifier.fillMaxWidth()
-        )
+        
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = desiredDose,
+                onValueChange = { desiredDose = it },
+                label = { Text("Desired Dose") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Column {
+                Text("Unit", style = MaterialTheme.typography.labelSmall)
+                Row {
+                    FilterChip(
+                        selected = doseUnit == "mcg",
+                        onClick = { doseUnit = "mcg" },
+                        label = { Text("mcg") }
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    FilterChip(
+                        selected = doseUnit == "mg",
+                        onClick = { doseUnit = "mg" },
+                        label = { Text("mg") }
+                    )
+                }
+            }
+        }
 
         Spacer(modifier = Modifier.height(24.dp))
 
@@ -97,6 +121,15 @@ fun PeptideCalculatorScreen() {
                 }
                 Text("on a 100-unit insulin syringe", style = MaterialTheme.typography.bodyMedium)
                 
+                if (resultUnits > 100) {
+                    Text(
+                        "Note: Requires ${"%.2f".format(resultUnits / 100)} full 1ml syringes",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+
                 HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
                 
                 Text(
@@ -118,7 +151,7 @@ fun PeptideCalculatorScreen() {
                 Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(20.dp))
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    "Calculation assumes a standard U-100 insulin syringe (1ml = 100 units).",
+                    "Works for Peptides, GHK-Cu, NAD+, Glutathione, etc. Syringe unit calculation based on U-100 (1ml = 100 units).",
                     style = MaterialTheme.typography.bodySmall
                 )
             }

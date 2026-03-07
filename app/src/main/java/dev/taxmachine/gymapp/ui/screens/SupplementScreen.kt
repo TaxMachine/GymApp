@@ -10,12 +10,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.taxmachine.gymapp.db.*
-import dev.taxmachine.gymapp.ui.components.ActionButtonColumn
 
 @Composable
 fun SupplementScreen(
@@ -30,17 +28,19 @@ fun SupplementScreen(
     var supplementToLogProgress by remember { mutableStateOf<SupplementEntity?>(null) }
     var supplementToOverride by remember { mutableStateOf<SupplementEntity?>(null) }
 
+    // Stable internal callbacks
+    val onLogProgressInternal = remember { { s: SupplementEntity -> supplementToLogProgress = s } }
+    val onOverrideInternal = remember { { s: SupplementEntity -> supplementToOverride = s } }
+
     if (supplements.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("No supplements added yet. Press + to add.")
         }
     } else {
+        // Group and sort supplements efficiently
         val groupedSupplements = remember(supplements) {
             supplements.groupBy { it.isActive }.toSortedMap(compareByDescending { it })
         }
-
-        val onLogProgressInternal = remember { { s: SupplementEntity -> supplementToLogProgress = s } }
-        val onOverrideInternal = remember { { s: SupplementEntity -> supplementToOverride = s } }
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -59,7 +59,7 @@ fun SupplementScreen(
                         HorizontalDivider(
                             modifier = Modifier.padding(top = 4.dp),
                             thickness = 1.dp,
-                            color = if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                            color = (if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline).copy(alpha = 0.2f)
                         )
                     }
                 }
@@ -82,6 +82,7 @@ fun SupplementScreen(
         }
     }
 
+    // Dialogs
     if (supplementToLogProgress != null) {
         val s = supplementToLogProgress!!
         var newDosage by remember(s) { mutableStateOf(s.dosage) }
@@ -135,7 +136,7 @@ fun SupplementScreen(
 }
 
 @Composable
-fun SupplementItem(
+private fun SupplementItem(
     supplement: SupplementEntity,
     onShowGraph: (SupplementEntity) -> Unit,
     onUpdateDosage: (SupplementEntity) -> Unit,
@@ -143,63 +144,83 @@ fun SupplementItem(
     onToggleActive: (SupplementEntity) -> Unit,
     onDelete: (SupplementEntity) -> Unit
 ) {
+    val isActive = supplement.isActive
+    val contentAlpha = if (isActive) 1f else 0.6f
+    
+    // Calculate colors once per recomposition
+    val containerColor = if (isActive) {
+        MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f)
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+    }
+
+    // Manual layout to reduce node overhead and improve scroll performance
     Card(
         onClick = { onShowGraph(supplement) },
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (supplement.isActive) {
-                MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f)
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-            }
-        ),
-        modifier = Modifier.alpha(if (supplement.isActive) 1f else 0.6f)
+        colors = CardDefaults.cardColors(containerColor = containerColor),
+        modifier = Modifier.fillMaxWidth()
     ) {
-        ListItem(
-            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-            headlineContent = { 
+        Row(
+            modifier = Modifier
+                .padding(16.dp)
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Leading Icon
+            Icon(
+                imageVector = if (supplement.isInjectable) Icons.Default.Vaccines else Icons.Default.Medication,
+                contentDescription = null,
+                tint = (if (isActive) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.outline).copy(alpha = contentAlpha),
+                modifier = Modifier.size(24.dp)
+            )
+            
+            Spacer(modifier = Modifier.width(16.dp))
+            
+            // Text Content
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    supplement.name,
+                    text = supplement.name,
                     fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.titleMedium
-                ) 
-            },
-            supportingContent = {
-                Text("${supplement.dosage}${supplement.unit.label} - ${supplement.frequency.label}", style = MaterialTheme.typography.bodyMedium)
-            },
-            leadingContent = {
-                Icon(
-                    imageVector = if (supplement.isInjectable) Icons.Default.Vaccines else Icons.Default.Medication,
-                    contentDescription = if (supplement.isInjectable) "Injectable" else "Capsule",
-                    tint = if (supplement.isActive) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.outline
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha)
                 )
-            },
-            trailingContent = {
-                ActionButtonColumn {
-                    if (supplement.isActive) {
-                        Row {
-                            IconButton(onClick = { onUpdateDosage(supplement) }) {
-                                Icon(Icons.Default.History, contentDescription = "Log Progress", tint = MaterialTheme.colorScheme.primary)
-                            }
-                            IconButton(onClick = { onOverrideDosage(supplement) }) {
-                                Icon(Icons.Default.Edit, contentDescription = "Override Dosage", tint = MaterialTheme.colorScheme.secondary)
-                            }
-                        }
-                    }
+                Text(
+                    text = "${supplement.dosage}${supplement.unit.label} - ${supplement.frequency.label}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha)
+                )
+            }
+            
+            // Trailing Actions
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                if (isActive) {
                     Row {
-                        IconButton(onClick = { onToggleActive(supplement) }) {
-                            Icon(
-                                if (supplement.isActive) Icons.Default.PauseCircle else Icons.Default.PlayCircle,
-                                contentDescription = if (supplement.isActive) "Discontinue" else "Resume",
-                                tint = if (supplement.isActive) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary
-                            )
+                        IconButton(onClick = { onUpdateDosage(supplement) }, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Default.History, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                         }
-                        IconButton(onClick = { onDelete(supplement) }) {
-                            Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error.copy(alpha = 0.6f))
+                        IconButton(onClick = { onOverrideDosage(supplement) }, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Default.Edit, null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(20.dp))
                         }
                     }
                 }
+                Row {
+                    IconButton(onClick = { onToggleActive(supplement) }, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            imageVector = if (isActive) Icons.Default.PauseCircle else Icons.Default.PlayCircle,
+                            contentDescription = null,
+                            tint = (if (isActive) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary).copy(alpha = contentAlpha),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    IconButton(onClick = { onDelete(supplement) }, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error.copy(alpha = 0.4f), modifier = Modifier.size(20.dp))
+                    }
+                }
             }
-        )
+        }
     }
 }

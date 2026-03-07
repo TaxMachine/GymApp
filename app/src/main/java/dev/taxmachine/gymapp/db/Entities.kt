@@ -144,3 +144,50 @@ data class CustomThemeColorsEntity(
     val error: Long,
     val onError: Long
 )
+
+@Entity(tableName = "health_sleep_logs")
+data class HealthSleepLogEntity(
+    @PrimaryKey val id: String, 
+    val startTime: Long,
+    val endTime: Long,
+    val durationMinutes: Long,
+    val sleepScore: Int = 0,
+    val source: String = "HealthConnect"
+)
+
+@Entity(
+    tableName = "health_sleep_stages",
+    foreignKeys = [
+        ForeignKey(
+            entity = HealthSleepLogEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["sessionId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("sessionId")]
+)
+data class HealthSleepStageEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val sessionId: String,
+    val startTime: Long,
+    val endTime: Long,
+    val stage: Int // Map to SleepSessionRecord.Stage.stage
+)
+
+@Entity(tableName = "health_weight_logs")
+data class HealthWeightLogEntity(
+    @PrimaryKey val id: String, 
+    val weightKg: Float,
+    val timestamp: Long,
+    val source: String = "HealthConnect"
+)
+
+@Entity(tableName = "health_nutrition_logs")
+data class HealthNutritionLogEntity(
+    @PrimaryKey val id: String, 
+    val energyKcal: Float,
+    val timestamp: Long,
+    val name: String?,
+    val source: String = "HealthConnect"
+)

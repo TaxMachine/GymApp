@@ -34,9 +34,13 @@ class Converters {
         WeightLogEntity::class,
         SupplementEntity::class,
         SupplementLogEntity::class,
-        CustomThemeColorsEntity::class
+        CustomThemeColorsEntity::class,
+        HealthSleepLogEntity::class,
+        HealthSleepStageEntity::class,
+        HealthWeightLogEntity::class,
+        HealthNutritionLogEntity::class
     ],
-    version = 13
+    version = 15
 )
 @TypeConverters(Converters::class)
 abstract class GymDatabase : RoomDatabase() {
@@ -46,60 +50,72 @@ abstract class GymDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: GymDatabase? = null
 
-        private val MIGRATION_7_8 = object : Migration(7, 8) {
+        private val MIGRATION_13_14 = object : Migration(13, 14) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("""
-                    CREATE TABLE IF NOT EXISTS `custom_theme_colors` (
-                        `isDark` INTEGER NOT NULL, 
-                        `primary` INTEGER NOT NULL, 
-                        `onPrimary` INTEGER NOT NULL, 
-                        `secondary` INTEGER NOT NULL, 
-                        `onSecondary` INTEGER NOT NULL, 
-                        `tertiary` INTEGER NOT NULL, 
-                        `onTertiary` INTEGER NOT NULL, 
-                        `background` INTEGER NOT NULL, 
-                        `onBackground` INTEGER NOT NULL, 
-                        `surface` INTEGER NOT NULL, 
-                        `onSurface` INTEGER NOT NULL, 
-                        `error` INTEGER NOT NULL, 
-                        `onError` INTEGER NOT NULL, 
-                        PRIMARY KEY(`isDark`)
+                    CREATE TABLE IF NOT EXISTS `health_sleep_logs` (
+                        `id` TEXT NOT NULL, 
+                        `startTime` INTEGER NOT NULL, 
+                        `endTime` INTEGER NOT NULL, 
+                        `durationMinutes` INTEGER NOT NULL, 
+                        `sleepScore` INTEGER NOT NULL DEFAULT 0,
+                        `source` TEXT NOT NULL DEFAULT 'HealthConnect', 
+                        PRIMARY KEY(`id`)
                     )
                 """)
-            }
-        }
-
-        private val MIGRATION_9_10 = object : Migration(9, 10) {
-            override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("""
-                    CREATE TABLE IF NOT EXISTS `badge_history` (
-                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
-                        `badgeId` TEXT NOT NULL, 
-                        `oldData` TEXT NOT NULL, 
-                        `newData` TEXT NOT NULL, 
+                    CREATE TABLE IF NOT EXISTS `health_weight_logs` (
+                        `id` TEXT NOT NULL, 
+                        `weightKg` REAL NOT NULL, 
                         `timestamp` INTEGER NOT NULL, 
-                        FOREIGN KEY(`badgeId`) REFERENCES `badges`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE 
+                        `source` TEXT NOT NULL DEFAULT 'HealthConnect', 
+                        PRIMARY KEY(`id`)
                     )
                 """)
-                db.execSQL("CREATE INDEX IF NOT EXISTS `index_badge_history_badgeId` ON `badge_history` (`badgeId`)")
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `health_nutrition_logs` (
+                        `id` TEXT NOT NULL, 
+                        `energyKcal` REAL NOT NULL, 
+                        `timestamp` INTEGER NOT NULL, 
+                        `name` TEXT, 
+                        `source` TEXT NOT NULL DEFAULT 'HealthConnect', 
+                        PRIMARY KEY(`id`)
+                    )
+                """)
             }
         }
 
-        private val MIGRATION_10_11 = object : Migration(10, 11) {
+        private val MIGRATION_14_15 = object : Migration(14, 15) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE `supplements` ADD COLUMN `isActive` INTEGER NOT NULL DEFAULT 1")
-            }
-        }
+                // Fix potential missing sleepScore column in health_sleep_logs if migration 13-14 was botched
+                val cursor = db.query("PRAGMA table_info(`health_sleep_logs`)")
+                var hasSleepScore = false
+                val nameIndex = cursor.getColumnIndex("name")
+                if (nameIndex != -1) {
+                    while (cursor.moveToNext()) {
+                        if (cursor.getString(nameIndex) == "sleepScore") {
+                            hasSleepScore = true
+                            break
+                        }
+                    }
+                }
+                cursor.close()
+                
+                if (!hasSleepScore) {
+                    db.execSQL("ALTER TABLE `health_sleep_logs` ADD COLUMN `sleepScore` INTEGER NOT NULL DEFAULT 0")
+                }
 
-        private val MIGRATION_11_12 = object : Migration(11, 12) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE `exercises` ADD COLUMN `isBodyweight` INTEGER NOT NULL DEFAULT 0")
-            }
-        }
-
-        private val MIGRATION_12_13 = object : Migration(12, 13) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE `weight_logs` ADD COLUMN `reps` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `health_sleep_stages` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
+                        `sessionId` TEXT NOT NULL, 
+                        `startTime` INTEGER NOT NULL, 
+                        `endTime` INTEGER NOT NULL, 
+                        `stage` INTEGER NOT NULL, 
+                        FOREIGN KEY(`sessionId`) REFERENCES `health_sleep_logs`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE 
+                    )
+                """)
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_health_sleep_stages_sessionId` ON `health_sleep_stages` (`sessionId`)")
             }
         }
 
@@ -110,7 +126,7 @@ abstract class GymDatabase : RoomDatabase() {
                     GymDatabase::class.java,
                     "gym_database"
                 )
-                .addMigrations(MIGRATION_7_8, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
+                .addMigrations(MIGRATION_13_14, MIGRATION_14_15)
                 .fallbackToDestructiveMigration(dropAllTables = true)
                 .build()
                 INSTANCE = instance

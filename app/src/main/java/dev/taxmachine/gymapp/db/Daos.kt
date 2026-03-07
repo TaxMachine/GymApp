@@ -98,4 +98,32 @@ interface GymDao {
 
     @Query("DELETE FROM custom_theme_colors")
     suspend fun deleteAllCustomThemeColors()
+
+    // Health Sleep Logs
+    @Query("SELECT * FROM health_sleep_logs ORDER BY startTime DESC")
+    fun getAllHealthSleepLogs(): Flow<List<HealthSleepLogEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertHealthSleepLogs(logs: List<HealthSleepLogEntity>)
+
+    // Health Sleep Stages
+    @Query("SELECT * FROM health_sleep_stages WHERE sessionId = :sessionId ORDER BY startTime ASC")
+    fun getSleepStagesForSession(sessionId: String): Flow<List<HealthSleepStageEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertHealthSleepStages(stages: List<HealthSleepStageEntity>)
+
+    // Health Weight Logs
+    @Query("SELECT * FROM health_weight_logs ORDER BY timestamp DESC")
+    fun getAllHealthWeightLogs(): Flow<List<HealthWeightLogEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertHealthWeightLogs(logs: List<HealthWeightLogEntity>)
+
+    // Health Nutrition Logs
+    @Query("SELECT * FROM health_nutrition_logs ORDER BY timestamp DESC")
+    fun getAllHealthNutritionLogs(): Flow<List<HealthNutritionLogEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertHealthNutritionLogs(logs: List<HealthNutritionLogEntity>)
 }
