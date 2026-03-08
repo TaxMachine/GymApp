@@ -19,10 +19,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import dev.taxmachine.gymapp.db.GymDatabase
 import dev.taxmachine.gymapp.ui.theme.AppTheme
 import dev.taxmachine.gymapp.ui.screens.MainScreen
 import dev.taxmachine.gymapp.ui.theme.GymAppTheme
 import dev.taxmachine.gymapp.receiver.SupplementReminderReceiver
+import dev.taxmachine.gymapp.utils.Logger
 import dev.taxmachine.gymapp.utils.NfcUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -42,12 +44,20 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Initialize Database and Logger
+        val dao = GymDatabase.getDatabase(this).gymDao()
+        Logger.init(dao)
+        Logger.i("MainActivity", "App started")
+
         nfcAdapter = NfcAdapter.getDefaultAdapter(this)
         healthConnectManager = HealthConnectManager(this)
         
         if (nfcAdapter == null) {
+            Logger.w("NFC", "NFC is not available on this device.")
             Toast.makeText(this, "NFC is not available on this device.", Toast.LENGTH_LONG).show()
         } else if (!nfcAdapter!!.isEnabled) {
+            Logger.w("NFC", "NFC is disabled.")
             Toast.makeText(this, "Please enable NFC.", Toast.LENGTH_LONG).show()
         }
 
@@ -73,6 +83,7 @@ class MainActivity : ComponentActivity() {
                 { newTheme: AppTheme ->
                     appTheme = newTheme
                     prefs.edit { putString("theme", newTheme.name) }
+                    Logger.i("Settings", "Theme changed to ${newTheme.name}")
                 }
             }
             
@@ -80,10 +91,14 @@ class MainActivity : ComponentActivity() {
                 { enabled: Boolean ->
                     dynamicColor = enabled
                     prefs.edit { putBoolean("dynamic_color", enabled) }
+                    Logger.i("Settings", "Dynamic color toggled: $enabled")
                 }
             }
 
-            val onScanningChange = remember { { enabled: Boolean -> isScanning.value = enabled } }
+            val onScanningChange = remember { { enabled: Boolean -> 
+                isScanning.value = enabled 
+                if (enabled) Logger.d("NFC", "NFC scanning started")
+            } }
             val onScannedTagChange = remember { { tag: Tag? -> scannedTag.value = tag } }
             val onScannedDataChange = remember { { data: String? -> scannedData.value = data } }
             
@@ -100,7 +115,9 @@ class MainActivity : ComponentActivity() {
                 PermissionController.createRequestPermissionResultContract()
             ) { granted ->
                 if (granted.containsAll(healthConnectManager.permissions)) {
-                    // Permissions granted
+                    Logger.i("HealthConnect", "Permissions granted")
+                } else {
+                    Logger.w("HealthConnect", "Some permissions were denied")
                 }
             }
 
@@ -109,7 +126,10 @@ class MainActivity : ComponentActivity() {
                     ActivityResultContracts.RequestPermission()
                 ) { isGranted ->
                     if (isGranted) {
+                        Logger.i("Notifications", "Post notifications permission granted")
                         SupplementReminderReceiver.scheduleReminder(context)
+                    } else {
+                        Logger.w("Notifications", "Post notifications permission denied")
                     }
                 }
                 
@@ -142,6 +162,7 @@ class MainActivity : ComponentActivity() {
                     disableNfcForegroundDispatch = disableNfcForegroundDispatchLambda,
                     healthConnectManager = healthConnectManager,
                     onRequestHealthPermissions = {
+                        Logger.d("HealthConnect", "Requesting permissions")
                         requestPermissionsLauncher.launch(healthConnectManager.permissions)
                     }
                 )
@@ -181,11 +202,13 @@ class MainActivity : ComponentActivity() {
 
     private fun processTag(tag: Tag) {
         lifecycleScope.launch(Dispatchers.IO) {
+            Logger.d("NFC", "Processing tag: ${tag.id.joinToString("") { "%02x".format(it) }}")
             val data = NfcUtils.readTagFullData(tag)
             withContext(Dispatchers.Main) {
                 scannedTag.value = tag
                 scannedData.value = data
                 isScanning.value = false
+                Logger.i("NFC", "Tag successfully processed")
             }
         }
     }

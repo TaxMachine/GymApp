@@ -47,6 +47,7 @@ fun SettingsScreen(
 
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showDatabaseViewer by remember { mutableStateOf(false) }
+    var showAllLogs by remember { mutableStateOf(false) }
 
     val customLightColors by dao.getCustomThemeColors(false).collectAsState(initial = null)
     val customDarkColors by dao.getCustomThemeColors(true).collectAsState(initial = null)
@@ -65,6 +66,11 @@ fun SettingsScreen(
 
     if (showDatabaseViewer) {
         DatabaseViewer(dao = dao, onBack = { showDatabaseViewer = false })
+        return
+    }
+
+    if (showAllLogs) {
+        AllLogsScreen(dao = dao, onBack = { showAllLogs = false })
         return
     }
 
@@ -302,6 +308,18 @@ fun SettingsScreen(
                 Icon(Icons.Default.Upload, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Import Database & Settings")
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedButton(
+                onClick = { showAllLogs = true },
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(12.dp)
+            ) {
+                Icon(Icons.Default.History, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("All Activity Logs")
             }
 
             Spacer(modifier = Modifier.height(8.dp))

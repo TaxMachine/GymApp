@@ -126,4 +126,14 @@ interface GymDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertHealthNutritionLogs(logs: List<HealthNutritionLogEntity>)
+
+    // App Logs
+    @Query("SELECT * FROM app_logs ORDER BY timestamp DESC")
+    fun getAllAppLogs(): Flow<List<AppLogEntity>>
+
+    @Insert
+    suspend fun insertAppLog(log: AppLogEntity)
+
+    @Query("DELETE FROM app_logs")
+    suspend fun clearAppLogs()
 }

@@ -32,6 +32,21 @@ object CalculationUtils {
         return (massMg * 1000) / desiredDoseMcg
     }
 
+    fun calculateNasalDose(massMg: Double, volumeMl: Double, sprayVolumeMl: Double, desiredDoseMcg: Double): Double {
+        if (massMg <= 0 || volumeMl <= 0 || sprayVolumeMl <= 0 || desiredDoseMcg <= 0) return 0.0
+        val totalMcg = massMg * 1000
+        val mcgPerMl = totalMcg / volumeMl
+        val mcgPerSpray = mcgPerMl * sprayVolumeMl
+        return desiredDoseMcg / mcgPerSpray
+    }
+
+    fun calculateMcgPerSpray(massMg: Double, volumeMl: Double, sprayVolumeMl: Double): Double {
+        if (massMg <= 0 || volumeMl <= 0 || sprayVolumeMl <= 0) return 0.0
+        val totalMcg = massMg * 1000
+        val mcgPerMl = totalMcg / volumeMl
+        return mcgPerMl * sprayVolumeMl
+    }
+
     data class WorkoutStats(
         val start: Float,
         val current: Float,

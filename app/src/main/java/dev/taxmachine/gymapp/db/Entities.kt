@@ -1,5 +1,6 @@
 package dev.taxmachine.gymapp.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -151,7 +152,9 @@ data class HealthSleepLogEntity(
     val startTime: Long,
     val endTime: Long,
     val durationMinutes: Long,
+    @ColumnInfo(defaultValue = "0")
     val sleepScore: Int = 0,
+    @ColumnInfo(defaultValue = "HealthConnect")
     val source: String = "HealthConnect"
 )
 
@@ -180,6 +183,7 @@ data class HealthWeightLogEntity(
     @PrimaryKey val id: String, 
     val weightKg: Float,
     val timestamp: Long,
+    @ColumnInfo(defaultValue = "HealthConnect")
     val source: String = "HealthConnect"
 )
 
@@ -189,5 +193,19 @@ data class HealthNutritionLogEntity(
     val energyKcal: Float,
     val timestamp: Long,
     val name: String?,
+    @ColumnInfo(defaultValue = "HealthConnect")
     val source: String = "HealthConnect"
+)
+
+enum class AppLogLevel {
+    DEBUG, INFO, WARNING, ERROR
+}
+
+@Entity(tableName = "app_logs")
+data class AppLogEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val level: AppLogLevel,
+    val tag: String,
+    val message: String,
+    val timestamp: Long = System.currentTimeMillis()
 )
