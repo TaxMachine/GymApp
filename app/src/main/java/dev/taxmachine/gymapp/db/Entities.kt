@@ -155,7 +155,9 @@ data class HealthSleepLogEntity(
     @ColumnInfo(defaultValue = "0")
     val sleepScore: Int = 0,
     @ColumnInfo(defaultValue = "HealthConnect")
-    val source: String = "HealthConnect"
+    val source: String = "HealthConnect",
+    @ColumnInfo(defaultValue = "0")
+    val avgHeartRate: Int = 0
 )
 
 @Entity(

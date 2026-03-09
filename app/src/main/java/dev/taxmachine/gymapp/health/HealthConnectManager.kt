@@ -4,9 +4,11 @@ import android.content.Context
 import android.util.Log
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.permission.HealthPermission
+import androidx.health.connect.client.records.HeartRateRecord
 import androidx.health.connect.client.records.NutritionRecord
 import androidx.health.connect.client.records.SleepSessionRecord
 import androidx.health.connect.client.records.WeightRecord
+import androidx.health.connect.client.request.AggregateRequest
 import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
 import dev.taxmachine.gymapp.db.GymDao
@@ -25,12 +27,17 @@ class HealthConnectManager(private val context: Context) {
     val permissions = setOf(
         HealthPermission.getReadPermission(SleepSessionRecord::class),
         HealthPermission.getReadPermission(WeightRecord::class),
-        HealthPermission.getReadPermission(NutritionRecord::class)
+        HealthPermission.getReadPermission(NutritionRecord::class),
+        HealthPermission.getReadPermission(HeartRateRecord::class)
     )
 
     suspend fun hasAllPermissions(): Boolean {
-        val grantedPermissions = healthConnectClient.permissionController.getGrantedPermissions()
-        return grantedPermissions.containsAll(permissions)
+        return try {
+            val grantedPermissions = healthConnectClient.permissionController.getGrantedPermissions()
+            grantedPermissions.containsAll(permissions)
+        } catch (e: Exception) {
+            false
+        }
     }
 
     suspend fun syncHealthData(dao: GymDao) {
@@ -40,47 +47,70 @@ class HealthConnectManager(private val context: Context) {
         }
 
         val now = Instant.now()
-        // Increase range to 60 days to ensure we catch older entries
-        val startTime = ZonedDateTime.now().minusDays(60).toInstant()
+        val startTime = ZonedDateTime.now().minusDays(90).toInstant() // Increased to 90 days
 
+        // Sync Sleep
         try {
-            // Sync Sleep Sessions
             val sleepRecords = readSleepSessions(startTime, now)
-            Log.d("HealthConnect", "Read ${sleepRecords.size} sleep records")
-            dao.insertHealthSleepLogs(sleepRecords.map {
+            val sleepLogs = mutableListOf<HealthSleepLogEntity>()
+            val stageEntities = mutableListOf<HealthSleepStageEntity>()
+
+            for (it in sleepRecords) {
                 val duration = Duration.between(it.startTime, it.endTime)
                 val minutes = duration.toMinutes()
                 val derivedScore = min(100, ((minutes.toFloat() / 480f) * 100).toInt())
 
-                HealthSleepLogEntity(
+                var avgHr = 0
+                try {
+                    val hrRequest = AggregateRequest(
+                        metrics = setOf(HeartRateRecord.BPM_AVG),
+                        timeRangeFilter = TimeRangeFilter.between(it.startTime, it.endTime)
+                    )
+                    val hrAggregate = healthConnectClient.aggregate(hrRequest)
+                    avgHr = hrAggregate[HeartRateRecord.BPM_AVG]?.toInt() ?: 0
+                    
+                    if (avgHr == 0) {
+                        val hrRecords = readHeartRateRecords(it.startTime, it.endTime)
+                        if (hrRecords.isNotEmpty()) {
+                            val allSamples = hrRecords.flatMap { record -> record.samples }
+                            if (allSamples.isNotEmpty()) {
+                                avgHr = allSamples.map { sample -> sample.beatsPerMinute }.average().toInt()
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("HealthConnect", "Error fetching heart rate: ${e.message}")
+                }
+
+                sleepLogs.add(HealthSleepLogEntity(
                     id = it.metadata.id,
                     startTime = it.startTime.toEpochMilli(),
                     endTime = it.endTime.toEpochMilli(),
                     durationMinutes = minutes,
                     sleepScore = derivedScore,
-                    source = it.metadata.dataOrigin.packageName
-                )
-            })
+                    source = it.metadata.dataOrigin.packageName,
+                    avgHeartRate = avgHr
+                ))
 
-            // Sync Sleep Stages
-            val stageEntities = mutableListOf<HealthSleepStageEntity>()
-            sleepRecords.forEach { session ->
-                session.stages.forEach { stage ->
+                it.stages.forEach { stage ->
                     stageEntities.add(HealthSleepStageEntity(
-                        sessionId = session.metadata.id,
+                        sessionId = it.metadata.id,
                         startTime = stage.startTime.toEpochMilli(),
                         endTime = stage.endTime.toEpochMilli(),
                         stage = stage.stage
                     ))
                 }
             }
-            if (stageEntities.isNotEmpty()) {
-                dao.insertHealthSleepStages(stageEntities)
-            }
+            dao.insertHealthSleepLogs(sleepLogs)
+            if (stageEntities.isNotEmpty()) dao.insertHealthSleepStages(stageEntities)
+            Log.d("HealthConnect", "Synced ${sleepLogs.size} sleep logs")
+        } catch (e: Exception) {
+            Log.e("HealthConnect", "Sleep sync failed: ${e.message}")
+        }
 
-            // Sync Weight
+        // Sync Weight
+        try {
             val weightRecords = readWeightRecords(startTime, now)
-            Log.d("HealthConnect", "Read ${weightRecords.size} weight records")
             if (weightRecords.isNotEmpty()) {
                 dao.insertHealthWeightLogs(weightRecords.map {
                     HealthWeightLogEntity(
@@ -91,10 +121,14 @@ class HealthConnectManager(private val context: Context) {
                     )
                 })
             }
+            Log.d("HealthConnect", "Synced ${weightRecords.size} weight logs")
+        } catch (e: Exception) {
+            Log.e("HealthConnect", "Weight sync failed: ${e.message}")
+        }
 
-            // Sync Nutrition
+        // Sync Nutrition
+        try {
             val nutritionRecords = readNutritionRecords(startTime, now)
-            Log.d("HealthConnect", "Read ${nutritionRecords.size} nutrition records")
             if (nutritionRecords.isNotEmpty()) {
                 dao.insertHealthNutritionLogs(nutritionRecords.map {
                     HealthNutritionLogEntity(
@@ -106,33 +140,50 @@ class HealthConnectManager(private val context: Context) {
                     )
                 })
             }
+            Log.d("HealthConnect", "Synced ${nutritionRecords.size} nutrition logs")
         } catch (e: Exception) {
-            Log.e("HealthConnect", "Error during sync: ${e.message}", e)
+            Log.e("HealthConnect", "Nutrition sync failed: ${e.message}")
         }
     }
 
     private suspend fun readSleepSessions(start: Instant, end: Instant): List<SleepSessionRecord> {
-        val request = ReadRecordsRequest(
-            recordType = SleepSessionRecord::class,
-            timeRangeFilter = TimeRangeFilter.between(start, end)
-        )
-        return healthConnectClient.readRecords(request).records
+        return try {
+            val request = ReadRecordsRequest(
+                recordType = SleepSessionRecord::class,
+                timeRangeFilter = TimeRangeFilter.between(start, end)
+            )
+            healthConnectClient.readRecords(request).records
+        } catch (e: Exception) { emptyList() }
+    }
+
+    private suspend fun readHeartRateRecords(start: Instant, end: Instant): List<HeartRateRecord> {
+        return try {
+            val request = ReadRecordsRequest(
+                recordType = HeartRateRecord::class,
+                timeRangeFilter = TimeRangeFilter.between(start, end)
+            )
+            healthConnectClient.readRecords(request).records
+        } catch (e: Exception) { emptyList() }
     }
 
     private suspend fun readWeightRecords(start: Instant, end: Instant): List<WeightRecord> {
-        val request = ReadRecordsRequest(
-            recordType = WeightRecord::class,
-            timeRangeFilter = TimeRangeFilter.between(start, end)
-        )
-        return healthConnectClient.readRecords(request).records
+        return try {
+            val request = ReadRecordsRequest(
+                recordType = WeightRecord::class,
+                timeRangeFilter = TimeRangeFilter.between(start, end)
+            )
+            healthConnectClient.readRecords(request).records
+        } catch (e: Exception) { emptyList() }
     }
 
     private suspend fun readNutritionRecords(start: Instant, end: Instant): List<NutritionRecord> {
-        val request = ReadRecordsRequest(
-            recordType = NutritionRecord::class,
-            timeRangeFilter = TimeRangeFilter.between(start, end)
-        )
-        return healthConnectClient.readRecords(request).records
+        return try {
+            val request = ReadRecordsRequest(
+                recordType = NutritionRecord::class,
+                timeRangeFilter = TimeRangeFilter.between(start, end)
+            )
+            healthConnectClient.readRecords(request).records
+        } catch (e: Exception) { emptyList() }
     }
 
     fun isHealthConnectAvailable(): Boolean {
