@@ -1,6 +1,8 @@
 package dev.taxmachine.gymapp.ui.screens
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -21,12 +23,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import dev.taxmachine.gymapp.BuildConfig
 import dev.taxmachine.gymapp.db.*
 import dev.taxmachine.gymapp.ui.theme.AppTheme
 import dev.taxmachine.gymapp.ui.theme.toColorScheme
 import dev.taxmachine.gymapp.ui.theme.toEntity
 import dev.taxmachine.gymapp.ui.dialogs.ColorPickerDialog
 import dev.taxmachine.gymapp.utils.DataUtils
+import dev.taxmachine.gymapp.utils.UpdateChecker
 import dev.taxmachine.gymapp.receiver.SupplementReminderReceiver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -63,6 +67,10 @@ fun SettingsScreen(
 
     // Weight Unit Settings
     var weightUnit by remember { mutableStateOf(prefs.getString("weight_unit", "kg") ?: "kg") }
+
+    // Update state
+    var isCheckingForUpdate by remember { mutableStateOf(false) }
+    var updateInfo by remember { mutableStateOf<UpdateChecker.UpdateInfo?>(null) }
 
     if (showDatabaseViewer) {
         DatabaseViewer(dao = dao, onBack = { showDatabaseViewer = false })
@@ -281,6 +289,87 @@ fun SettingsScreen(
                         modifier = Modifier.weight(1f)
                     )
                     Text("${nightHour}:00", modifier = Modifier.width(40.dp))
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        SettingsSection(title = "App Info & Updates", icon = Icons.Default.Info) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text("Current Build Commit:", style = MaterialTheme.typography.labelMedium)
+                    Text(
+                        BuildConfig.GIT_COMMIT_HASH,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                    )
+                    
+                    if (updateInfo != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Latest Release Tag:", style = MaterialTheme.typography.labelMedium)
+                        Text(updateInfo!!.latestTagName, style = MaterialTheme.typography.bodySmall)
+                        
+                        Text("Latest Release Commit:", style = MaterialTheme.typography.labelMedium)
+                        Text(
+                            updateInfo!!.latestCommitHash,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                        )
+
+                        if (updateInfo!!.isUpdateAvailable) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Button(
+                                onClick = {
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(updateInfo!!.htmlUrl))
+                                    context.startActivity(intent)
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Default.Download, contentDescription = null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Download Latest Release")
+                            }
+                        } else {
+                            Text(
+                                "App is up to date!",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(top = 8.dp)
+                            )
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    OutlinedButton(
+                        onClick = {
+                            isCheckingForUpdate = true
+                            UpdateChecker.checkForUpdates(context) { info ->
+                                scope.launch {
+                                    updateInfo = info
+                                    isCheckingForUpdate = false
+                                    if (info == null) {
+                                        Toast.makeText(context, "Failed to check for updates", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !isCheckingForUpdate
+                    ) {
+                        if (isCheckingForUpdate) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Default.Update, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Check for Updates")
+                        }
+                    }
                 }
             }
         }

@@ -1,10 +1,20 @@
 import java.util.Properties
 import java.io.FileInputStream
+import java.io.ByteArrayOutputStream
 
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     id("com.google.devtools.ksp") version "2.3.2"
+}
+
+fun getGitCommitHash(): String {
+    return try {
+        val process = Runtime.getRuntime().exec("git rev-parse HEAD")
+        process.inputStream.bufferedReader().readText().trim()
+    } catch (e: Exception) {
+        "unknown"
+    }
 }
 
 android {
@@ -33,6 +43,8 @@ android {
         versionCode = 1
         versionName = "1.0"
 
+        buildConfigField("String", "GIT_COMMIT_HASH", "\"${getGitCommitHash()}\"")
+
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -52,6 +64,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

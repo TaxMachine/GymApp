@@ -26,6 +26,7 @@ import dev.taxmachine.gymapp.ui.theme.GymAppTheme
 import dev.taxmachine.gymapp.receiver.SupplementReminderReceiver
 import dev.taxmachine.gymapp.utils.Logger
 import dev.taxmachine.gymapp.utils.NfcUtils
+import dev.taxmachine.gymapp.utils.UpdateChecker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -49,6 +50,9 @@ class MainActivity : ComponentActivity() {
         val dao = GymDatabase.getDatabase(this).gymDao()
         Logger.init(dao)
         Logger.i("MainActivity", "App started")
+
+        // Check for updates
+        UpdateChecker.checkForUpdates(this)
 
         nfcAdapter = NfcAdapter.getDefaultAdapter(this)
         healthConnectManager = HealthConnectManager(this)
