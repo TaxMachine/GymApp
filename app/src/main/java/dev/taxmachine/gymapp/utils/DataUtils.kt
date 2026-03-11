@@ -1,17 +1,109 @@
 package dev.taxmachine.gymapp.utils
 
+import android.content.ContentValues
 import android.content.Context
+import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
+import android.view.View
 import android.widget.Toast
+import androidx.core.content.FileProvider
 import dev.taxmachine.gymapp.db.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
+import java.io.FileOutputStream
 import java.io.OutputStreamWriter
 
 object DataUtils {
+
+    fun captureViewToBitmap(view: View): Bitmap {
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val bgDrawable = view.background
+        if (bgDrawable != null) {
+            bgDrawable.draw(canvas)
+        } else {
+            canvas.drawColor(Color.WHITE)
+        }
+        view.draw(canvas)
+        return bitmap
+    }
+
+    suspend fun saveBitmapToGallery(context: Context, bitmap: Bitmap, fileName: String) {
+        withContext(Dispatchers.IO) {
+            val name = "$fileName.png"
+            val outputStream = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val resolver = context.contentResolver
+                val contentValues = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+                    put(MediaStore.MediaColumns.MIME_TYPE, "image/png")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/GymApp")
+                }
+                val imageUri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+                imageUri?.let { resolver.openOutputStream(it) }
+            } else {
+                val imagesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString() + "/GymApp"
+                val file = File(imagesDir)
+                if (!file.exists()) file.mkdir()
+                val image = File(imagesDir, name)
+                FileOutputStream(image)
+            }
+
+            try {
+                outputStream?.use {
+                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "Image saved to gallery", Toast.LENGTH_SHORT).show()
+                    }
+                } ?: run {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "Failed to save image", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "Error saving image: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    fun shareBitmap(context: Context, bitmap: Bitmap, fileName: String) {
+        try {
+            val cachePath = File(context.cacheDir, "images")
+            cachePath.mkdirs()
+            val stream = FileOutputStream("$cachePath/$fileName.png")
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+            stream.close()
+
+            val imagePath = File(context.cacheDir, "images")
+            val newFile = File(imagePath, "$fileName.png")
+            val contentUri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", newFile)
+
+            if (contentUri != null) {
+                val shareIntent = Intent().apply {
+                    action = Intent.ACTION_SEND
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    setDataAndType(contentUri, context.contentResolver.getType(contentUri))
+                    putExtra(Intent.EXTRA_STREAM, contentUri)
+                }
+                context.startActivity(Intent.createChooser(shareIntent, "Share Graph"))
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(context, "Failed to share image", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     suspend fun exportDataToJson(context: Context, uri: Uri, dao: GymDao) {
         withContext(Dispatchers.IO) {

@@ -176,39 +176,43 @@ object NfcUtils {
         return bytesToHex(tag.id)
     }
 
-    fun formatHexDump(hex: String): String {
-        if (hex.isEmpty()) return "No data"
-        val bytes = hexToBytes(hex)
-        if (bytes.isEmpty()) return "Invalid data format"
+    fun formatHexDump(hexString: String): String {
+        if (hexString.isBlank()) return "No data"
         
         val sb = StringBuilder()
+        val bytes = hexToBytes(hexString)
+        
         for (i in bytes.indices step 16) {
             // Offset
-            sb.append(String.format("%04x: ", i))
+            sb.append("%04X  ".format(i))
             
-            // Hex bytes
+            // Hex values
             for (j in 0 until 16) {
                 if (i + j < bytes.size) {
                     val b = bytes[i + j].toInt() and 0xFF
-                    sb.append(HEX_CHARS[b shr 4])
-                    sb.append(HEX_CHARS[b and 0x0F])
-                    sb.append(' ')
+                    sb.append("%02X ".format(b))
                 } else {
                     sb.append("   ")
                 }
-                if (j == 7) sb.append(' ')
+                if (j == 7) sb.append(" ")
             }
             
-            // ASCII
             sb.append(" |")
+            
+            // ASCII values
             for (j in 0 until 16) {
                 if (i + j < bytes.size) {
-                    val c = bytes[i + j].toInt().toChar()
-                    if (c in ' '..'~') sb.append(c) else sb.append('.')
+                    val b = bytes[i + j].toInt() and 0xFF
+                    if (b in 32..126) {
+                        sb.append(b.toChar())
+                    } else {
+                        sb.append('.')
+                    }
                 }
             }
             sb.append("|\n")
         }
+        
         return sb.toString()
     }
 
@@ -219,7 +223,12 @@ object NfcUtils {
         val sb = StringBuilder()
         sb.append("Filetype: Flipper NFC device\n")
         sb.append("Version: 3\n")
-        sb.append("Device type: NTAG213\n")
+        
+        if (badge.protocol.contains("NFC-V") || badge.protocol.contains("15693")) {
+            sb.append("Device type: ISO15693\n")
+        } else {
+            sb.append("Device type: NTAG213\n")
+        }
         
         sb.append("UID: ")
         val uidBytes = hexToBytes(badge.id)
@@ -229,20 +238,38 @@ object NfcUtils {
             sb.append(HEX_CHARS[b and 0x0F].uppercaseChar())
             if (i < uidBytes.size - 1) sb.append(' ')
         }
-        sb.append("\nATQA: 44 00\nSAK: 00\n")
-
-        for (i in 0 until (bytes.size / 4)) {
-            sb.append("Page $i: ")
-            for (j in 0 until 4) {
-                val idx = i * 4 + j
-                if (idx < bytes.size) {
-                    val b = bytes[idx].toInt() and 0xFF
-                    sb.append(HEX_CHARS[b shr 4].uppercaseChar())
-                    sb.append(HEX_CHARS[b and 0x0F].uppercaseChar())
-                    if (j < 3) sb.append(' ')
+        
+        if (badge.protocol.contains("NFC-V") || badge.protocol.contains("15693")) {
+            sb.append("\n# ISO15693 specific data\n")
+            // NFC-V usually has 4-byte blocks
+            for (i in 0 until (bytes.size / 4)) {
+                sb.append("Block $i: ")
+                for (j in 0 until 4) {
+                    val idx = i * 4 + j
+                    if (idx < bytes.size) {
+                        val b = bytes[idx].toInt() and 0xFF
+                        sb.append(HEX_CHARS[b shr 4].uppercaseChar())
+                        sb.append(HEX_CHARS[b and 0x0F].uppercaseChar())
+                        if (j < 3) sb.append(' ')
+                    }
                 }
+                sb.append('\n')
             }
-            sb.append('\n')
+        } else {
+            sb.append("\nATQA: 44 00\nSAK: 00\n")
+            for (i in 0 until (bytes.size / 4)) {
+                sb.append("Page $i: ")
+                for (j in 0 until 4) {
+                    val idx = i * 4 + j
+                    if (idx < bytes.size) {
+                        val b = bytes[idx].toInt() and 0xFF
+                        sb.append(HEX_CHARS[b shr 4].uppercaseChar())
+                        sb.append(HEX_CHARS[b and 0x0F].uppercaseChar())
+                        if (j < 3) sb.append(' ')
+                    }
+                }
+                sb.append('\n')
+            }
         }
         return sb.toString()
     }

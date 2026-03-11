@@ -12,23 +12,32 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import dev.taxmachine.gymapp.db.GymDao
 import dev.taxmachine.gymapp.db.HealthSleepLogEntity
-import dev.taxmachine.gymapp.db.HealthSleepStageEntity
+import dev.taxmachine.gymapp.ui.components.RangeGauge
+import dev.taxmachine.gymapp.ui.components.SleepStageGraph
+import dev.taxmachine.gymapp.ui.components.StageLegend
+import dev.taxmachine.gymapp.utils.DataUtils
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
@@ -49,19 +58,6 @@ private object SleepGraphConstants {
     val SCORE_GOOD = Color(0xFFAED581)    // Light Green
     const val SCORE_EXCELLENT_HEX = 0xFF66BB6A // Green
     val SCORE_EXCELLENT = Color(SCORE_EXCELLENT_HEX)
-
-    const val Y_REM = 0f
-    const val Y_LIGHT = 0.33f
-    const val Y_DEEP = 0.66f
-    const val Y_AWAKE = 1f
-    
-    const val STAGE_FILL_ALPHA = 0.3f
-    val LINE_STROKE_WIDTH = 3.dp
-    val GRAPH_HEIGHT = 150.dp
-    
-    val HEART_RATE_ICON_SIZE = 16.dp
-    val LEGEND_DOT_SIZE = 8.dp
-    val LEGEND_FONT_SIZE = 10.sp
 
     val SCORE_GRAPH_HEIGHT = 100.dp
 
@@ -84,15 +80,12 @@ fun SleepTab(dao: GymDao) {
             Text("No sleep data found. Tap refresh to sync.")
         }
     } else {
-        // Find the "significant" session for Last Night (longest of the 3 most recent sessions)
-        // This avoids picking up tiny "wake up" or "nap" sessions as the main display
         val lastNight = remember(logs) {
             logs.take(3).maxByOrNull { it.durationMinutes } ?: logs.firstOrNull()
         }
         
         var selectedDate by remember { mutableStateOf<LocalDate?>(null) }
         
-        // When associating logs by date, we keep the longest session for each date
         val logsByDate = remember(logs) {
             logs.sortedBy { it.durationMinutes }.associateBy { 
                 Instant.ofEpochMilli(it.startTime).atZone(ZoneId.systemDefault()).toLocalDate()
@@ -240,9 +233,19 @@ fun SleepScoreGraph(logs: List<HealthSleepLogEntity>, modifier: Modifier = Modif
 @Composable
 fun SleepSessionGraphCard(title: String, session: HealthSleepLogEntity, dao: GymDao) {
     val stages by dao.getSleepStagesForSession(session.id).collectAsState(initial = emptyList())
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val graphicsLayer = rememberGraphicsLayer()
     
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .drawWithContent {
+                graphicsLayer.record {
+                    this@drawWithContent.drawContent()
+                }
+                drawLayer(graphicsLayer)
+            },
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
     ) {
@@ -250,18 +253,27 @@ fun SleepSessionGraphCard(title: String, session: HealthSleepLogEntity, dao: Gym
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = {
+                        coroutineScope.launch {
+                            val bitmap = graphicsLayer.toImageBitmap().asAndroidBitmap()
+                            DataUtils.saveBitmapToGallery(context, bitmap, "sleep_graph_${session.id}")
+                        }
+                    }) {
+                        Icon(Icons.Default.Download, contentDescription = "Download", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                    }
+                    
                     Text(
                         text = "Score: ${session.sleepScore}",
                         style = MaterialTheme.typography.labelLarge,
                         color = SleepGraphConstants.getScoreColor(session.sleepScore),
                         fontWeight = FontWeight.Bold
                     )
-                    Spacer(modifier = Modifier.width(16.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
                     Icon(
                         imageVector = Icons.Default.Favorite, 
                         contentDescription = null, 
                         tint = Color.Red, 
-                        modifier = Modifier.size(SleepGraphConstants.HEART_RATE_ICON_SIZE)
+                        modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
@@ -274,7 +286,7 @@ fun SleepSessionGraphCard(title: String, session: HealthSleepLogEntity, dao: Gym
             Spacer(modifier = Modifier.height(12.dp))
             
             if (stages.isNotEmpty()) {
-                SleepStageGraph(stages = stages, modifier = Modifier.fillMaxWidth().height(SleepGraphConstants.GRAPH_HEIGHT + 24.dp))
+                SleepStageGraph(stages = stages, modifier = Modifier.fillMaxWidth().height(150.dp + 24.dp))
                 
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -284,115 +296,77 @@ fun SleepSessionGraphCard(title: String, session: HealthSleepLogEntity, dao: Gym
                     StageLegend("Light", SleepGraphConstants.LIGHT_COLOR)
                     StageLegend("Deep", SleepGraphConstants.DEEP_COLOR)
                 }
+
+                Spacer(modifier = Modifier.height(24.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Gauges Section
+                val deepMinutes = remember(stages) { stages.filter { it.stage == 5 }.sumOf { it.endTime - it.startTime } / 60000f }
+                val remMinutes = remember(stages) { stages.filter { it.stage == 6 }.sumOf { it.endTime - it.startTime } / 60000f }
+                val lightMinutes = remember(stages) { stages.filter { it.stage in listOf(2, 4) }.sumOf { it.endTime - it.startTime } / 60000f }
+                val awakeMinutes = remember(stages) { stages.filter { it.stage == 1 }.sumOf { it.endTime - it.startTime } / 60000f }
+
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        RangeGauge(
+                            label = "Deep Sleep",
+                            value = deepMinutes,
+                            min = 0f,
+                            max = 180f,
+                            greenRange = 60f..120f,
+                            suffix = "m",
+                            color = SleepGraphConstants.DEEP_COLOR
+                        )
+                        RangeGauge(
+                            label = "REM Sleep",
+                            value = remMinutes,
+                            min = 0f,
+                            max = 180f,
+                            greenRange = 90f..120f,
+                            suffix = "m",
+                            color = SleepGraphConstants.REM_COLOR
+                        )
+                    }
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        RangeGauge(
+                            label = "Light Sleep",
+                            value = lightMinutes,
+                            min = 0f,
+                            max = 480f,
+                            greenRange = 200f..350f,
+                            suffix = "m",
+                            color = SleepGraphConstants.LIGHT_COLOR
+                        )
+                        RangeGauge(
+                            label = "Awake",
+                            value = awakeMinutes,
+                            min = 0f,
+                            max = 120f,
+                            greenRange = 0f..45f,
+                            suffix = "m",
+                            color = SleepGraphConstants.AWAKE_COLOR
+                        )
+                    }
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        RangeGauge(
+                            label = "Heart Rate",
+                            value = session.avgHeartRate.toFloat(),
+                            min = 40f,
+                            max = 110f,
+                            greenRange = 40f..65f,
+                            suffix = " bpm",
+                            color = Color(0xFFEF5350)
+                        )
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+                }
             } else {
-                Box(Modifier.fillMaxWidth().height(SleepGraphConstants.GRAPH_HEIGHT), contentAlignment = Alignment.Center) {
+                Box(Modifier.fillMaxWidth().height(150.dp), contentAlignment = Alignment.Center) {
                     Text("No stage data available", style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
-    }
-}
-
-@Composable
-fun SleepStageGraph(stages: List<HealthSleepStageEntity>, modifier: Modifier = Modifier) {
-    val lineColor = MaterialTheme.colorScheme.primary
-    val labelColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-
-    fun stageToY(stage: Int): Float {
-        return when (stage) {
-            6 -> SleepGraphConstants.Y_REM
-            2, 4 -> SleepGraphConstants.Y_LIGHT
-            5 -> SleepGraphConstants.Y_DEEP
-            1 -> SleepGraphConstants.Y_AWAKE
-            else -> SleepGraphConstants.Y_LIGHT
-        }
-    }
-
-    val sortedStages = remember(stages) { stages.sortedBy { it.startTime } }
-    val sessionStart = sortedStages.firstOrNull()?.startTime ?: 0L
-    val sessionEnd = sortedStages.lastOrNull()?.endTime ?: 0L
-    val totalDuration = (sessionEnd - sessionStart).coerceAtLeast(1L).toFloat()
-
-    val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm") }
-
-    Column(modifier = modifier) {
-        Row(modifier = Modifier.weight(1f)) {
-            Column(
-                modifier = Modifier.fillMaxHeight().padding(end = 8.dp),
-                verticalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text("REM", style = MaterialTheme.typography.labelSmall, fontSize = 8.sp, color = labelColor)
-                Text("Light", style = MaterialTheme.typography.labelSmall, fontSize = 8.sp, color = labelColor)
-                Text("Deep", style = MaterialTheme.typography.labelSmall, fontSize = 8.sp, color = labelColor)
-                Text("Awake", style = MaterialTheme.typography.labelSmall, fontSize = 8.sp, color = labelColor)
-            }
-
-            Canvas(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                val width = size.width
-                val height = size.height
-
-                val path = Path()
-                var first = true
-
-                sortedStages.forEach { stage ->
-                    val startX = ((stage.startTime - sessionStart) / totalDuration) * width
-                    val endX = ((stage.endTime - sessionStart) / totalDuration) * width
-                    val y = stageToY(stage.stage) * height
-
-                    if (first) {
-                        path.moveTo(startX, y)
-                        first = false
-                    } else {
-                        path.lineTo(startX, y)
-                    }
-                    path.lineTo(endX, y)
-
-                    drawRect(
-                        color = when (stage.stage) {
-                            1 -> SleepGraphConstants.AWAKE_COLOR
-                            6 -> SleepGraphConstants.REM_COLOR
-                            2, 4 -> SleepGraphConstants.LIGHT_COLOR
-                            5 -> SleepGraphConstants.DEEP_COLOR
-                            else -> SleepGraphConstants.LIGHT_COLOR
-                        }.copy(alpha = SleepGraphConstants.STAGE_FILL_ALPHA),
-                        topLeft = Offset(startX, y),
-                        size = androidx.compose.ui.geometry.Size(endX - startX, height - y)
-                    )
-                }
-
-                drawPath(
-                    path = path,
-                    color = lineColor,
-                    style = Stroke(width = SleepGraphConstants.LINE_STROKE_WIDTH.toPx())
-                )
-            }
-        }
-        
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(start = 32.dp, top = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            val startTimeText = Instant.ofEpochMilli(sessionStart).atZone(ZoneId.systemDefault()).format(timeFormatter)
-            val endTimeText = Instant.ofEpochMilli(sessionEnd).atZone(ZoneId.systemDefault()).format(timeFormatter)
-            
-            Text(startTimeText, style = MaterialTheme.typography.labelSmall, fontSize = 9.sp, color = labelColor)
-            
-            if (totalDuration > 4 * 60 * 60 * 1000) {
-                val midTimeText = Instant.ofEpochMilli(sessionStart + (totalDuration / 2).toLong()).atZone(ZoneId.systemDefault()).format(timeFormatter)
-                Text(midTimeText, style = MaterialTheme.typography.labelSmall, fontSize = 9.sp, color = labelColor)
-            }
-            
-            Text(endTimeText, style = MaterialTheme.typography.labelSmall, fontSize = 9.sp, color = labelColor)
-        }
-    }
-}
-
-@Composable
-fun StageLegend(label: String, color: Color) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(modifier = Modifier.size(SleepGraphConstants.LEGEND_DOT_SIZE).background(color, CircleShape))
-        Spacer(modifier = Modifier.width(4.dp))
-        Text(label, style = MaterialTheme.typography.labelSmall, fontSize = SleepGraphConstants.LEGEND_FONT_SIZE)
     }
 }
 

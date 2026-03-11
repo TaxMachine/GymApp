@@ -7,6 +7,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Nfc
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -73,6 +74,8 @@ fun BadgeItem(
     val onEmulateAction = remember(badge, onEmulate) { { onEmulate(badge) } }
     val onDeleteAction = remember(badge, onDelete) { { onDelete(badge) } }
 
+    val isNfcV = badge.protocol.contains("NFC-V") || badge.protocol.contains("15693")
+
     Card(
         onClick = onCardClick,
         modifier = Modifier.fillMaxWidth(),
@@ -81,39 +84,69 @@ fun BadgeItem(
             containerColor = containerColor
         )
     ) {
-        ListItem(
-            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-            leadingContent = {
-                Icon(Icons.Default.Nfc, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            },
-            headlineContent = {
-                Text(
-                    badge.name,
-                    fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.titleMedium
-                )
-            },
-            supportingContent = { Text("ID: ${badge.id}", style = MaterialTheme.typography.bodySmall) },
-            trailingContent = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Button(
-                        onClick = onEmulateAction,
-                        colors = if (isEmulating) {
-                            ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                        } else {
-                            ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                        },
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                        modifier = Modifier.height(32.dp)
-                    ) {
-                        Text(if (isEmulating) "Stop" else "Emulate", style = MaterialTheme.typography.labelMedium)
+        Column {
+            ListItem(
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                leadingContent = {
+                    Icon(Icons.Default.Nfc, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                },
+                headlineContent = {
+                    Text(
+                        badge.name,
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                },
+                supportingContent = { 
+                    Column {
+                        Text("Protocol: ${badge.protocol}", style = MaterialTheme.typography.bodySmall)
+                        Text("ID: ${badge.id}", style = MaterialTheme.typography.bodySmall)
                     }
-                    Spacer(modifier = Modifier.width(4.dp))
-                    IconButton(onClick = onDeleteAction) {
-                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error.copy(alpha = 0.6f))
+                },
+                trailingContent = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Button(
+                            onClick = onEmulateAction,
+                            enabled = !isNfcV,
+                            colors = if (isEmulating) {
+                                ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                            } else {
+                                ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                            },
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            modifier = Modifier.height(32.dp)
+                        ) {
+                            Text(if (isEmulating) "Stop" else "Emulate", style = MaterialTheme.typography.labelMedium)
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+                        IconButton(onClick = onDeleteAction) {
+                            Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error.copy(alpha = 0.6f))
+                        }
                     }
                 }
+            )
+            
+            if (isNfcV) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Warning, 
+                        contentDescription = null, 
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        "NFC-V cannot be emulated by Android hardware.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
             }
-        )
+        }
     }
 }
